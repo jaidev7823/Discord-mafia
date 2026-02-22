@@ -17,7 +17,7 @@ client = discord.Client(intents=intents)
 def ask_ollama(prompt):
     url = "http://localhost:11434/api/generate"
     payload = {
-        "model": "gemma3",
+        "model": "ministral-3",
         "prompt": prompt,
         "stream": False
     }

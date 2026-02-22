@@ -2,7 +2,7 @@ import requests
 
 url = "http://localhost:11434/api/chat"
 payload = {
-    "model": "gemma3",
+    "model": "ministral-3",
     "messages": [{"role": "user", "content": "Hello, Gemma!"}],
     "stream": False
 }
