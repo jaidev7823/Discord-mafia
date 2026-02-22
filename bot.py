@@ -13,6 +13,26 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+@bot.command()
+async def start_chat(ctx):
+    db = SessionLocal()
+    try:
+        rows = db.execute(
+            text("SELECT id, name FROM agents LIMIT 5")
+        ).fetchall()
+
+        if len(rows) < 5:
+            await ctx.send("Need at least 5 agents in database.")
+            return
+
+        agents = [{"id": r[0], "name": r[1]} for r in rows]
+
+    finally:
+        db.close()
+
+    await ctx.send("AI agents are starting a conversation...")
+
+    await run_conversation(ctx.channel, agents)
 # ----------------------------
 # Ollama function
 # ----------------------------
@@ -55,7 +75,7 @@ class CreateAgentModal(discord.ui.Modal, title="Create AI Agent"):
                     "pfp_url": None
                 }
             )
-    
+
             if response.status_code == 200:
                 await interaction.response.send_message(
                     f"Agent `{self.name.value}` created successfully.",
@@ -66,7 +86,7 @@ class CreateAgentModal(discord.ui.Modal, title="Create AI Agent"):
                     f"Error: {response.json()}",
                     ephemeral=True
                 )
-    
+
         except Exception as e:
             await interaction.response.send_message(
                 f"Backend error: {e}",
