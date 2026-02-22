@@ -29,6 +29,7 @@ class Agent(Base):
     system_prompt = Column(Text)
     backstory = Column(Text)
     personality = Column(Text)
+    voice_path = Column(String, default="en_US-arctic-medium.onnx")  # <-- ADD THIS
     pfp_url = Column(String)
     is_active = Column(Integer, default=1)
     created_at = Column(DateTime, server_default=func.now())

@@ -1,58 +1,173 @@
-# bot.py
 import discord
 import os
+import asyncio
 import requests
 from dotenv import load_dotenv
 from discord.ext import commands
+from sqlalchemy import text
+from db.database import SessionLocal
+from tts import synthesize_to_file
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 intents = discord.Intents.default()
 intents.message_content = True
-
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-@bot.command()
-async def start_chat(ctx):
-    db = SessionLocal()
+# =========================================================
+# -------------------- UTILITIES --------------------------
+# =========================================================
+
+def ask_ollama(prompt: str) -> str:
     try:
-        rows = db.execute(
-            text("SELECT id, name FROM agents LIMIT 5")
-        ).fetchall()
-
-        if len(rows) < 5:
-            await ctx.send("Need at least 5 agents in database.")
-            return
-
-        agents = [{"id": r[0], "name": r[1]} for r in rows]
-
-    finally:
-        db.close()
-
-    await ctx.send("AI agents are starting a conversation...")
-
-    await run_conversation(ctx.channel, agents)
-# ----------------------------
-# Ollama function
-# ----------------------------
-def ask_ollama(prompt):
-    url = "http://localhost:11434/api/generate"
-    payload = {
-        "model": "ministral-3",
-        "prompt": prompt,
-        "stream": False
-    }
-    try:
-        response = requests.post(url, json=payload)
-        return response.json().get("response", "No response from AI.")
+        res = requests.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": "ministral-3",
+                "prompt": prompt,
+                "stream": False,
+            },
+        )
+        return res.json().get("response", "No response.")
     except Exception as e:
         return f"Error: {e}"
 
 
-# ----------------------------
-# Modal
-# ----------------------------
+def get_agents(limit=5):
+    db = SessionLocal()
+    try:
+        rows = db.execute(
+            text("""
+                SELECT id, name, personality, backstory, system_prompt
+                FROM agents
+                LIMIT :limit
+            """),
+            {"limit": limit},
+        ).fetchall()
+
+        return [
+            {
+                "id": r[0],
+                "name": r[1],
+                "personality": r[2],
+                "backstory": r[3],
+                "system_prompt": r[4],
+
+            }
+            for r in rows
+        ]
+    finally:
+        db.close()
+
+
+def build_prompt(agent, history):
+    context = "\n".join(
+        f"{h['speaker']}: {h['message']}" for h in history[-10:]
+    )
+
+    return f"""
+You are {agent['name']}.
+Talk casually in a group chat.
+Keep response 1 short line.
+
+Personality: {agent['personality']}
+Backstory: {agent['backstory']}
+System Prompt: {agent['system_prompt']}
+
+
+
+Conversation:
+{context}
+
+Your message:
+"""
+
+import os
+
+async def speak(channel, agent, message):
+    voice_client = discord.utils.get(bot.voice_clients, guild=channel.guild)
+    if not voice_client:
+        return
+
+    output_file = f"temp_{agent['id']}.wav"
+
+    synthesize_to_file(
+        text=message,
+        output_path=output_file,
+    )
+
+    source = discord.FFmpegPCMAudio(output_file)
+    voice_client.play(source)
+
+    while voice_client.is_playing():
+        await asyncio.sleep(0.2)
+
+    os.remove(output_file)
+
+# =========================================================
+# ---------------- CONVERSATION LOOP ----------------------
+# =========================================================
+
+async def run_conversation(channel, agents, rounds=3):
+    history = []
+
+    for _ in range(rounds):
+        for agent in agents:
+            prompt = build_prompt(agent, history)
+            message = ask_ollama(prompt)
+
+            history.append({
+                "speaker": agent["name"],
+                "message": message
+            })
+            voice_client = discord.utils.get(bot.voice_clients, guild=channel.guild)
+            await channel.send(f"**{agent['name']}**: {message}")
+
+            if voice_client:
+                await speak(channel, agent, message)
+
+            await asyncio.sleep(1)
+
+# =========================================================
+# -------------------- SLASH COMMANDS ---------------------
+# =========================================================
+
+@bot.tree.command(name="start-chat", description="Start AI agents conversation")
+async def start_chat(interaction: discord.Interaction):
+    try:
+        await interaction.response.defer()
+
+        agents = get_agents()
+
+        if len(agents) < 5:
+            await interaction.followup.send("Need at least 5 agents.")
+            return
+
+        await interaction.followup.send("AI agents are starting...")
+        await run_conversation(interaction.channel, agents)
+
+    except Exception as e:
+        print("ERROR:", e)
+        await interaction.followup.send(f"Error: {e}")
+
+
+@bot.tree.command(name="create-agent", description="Create a new AI agent")
+async def create_agent(interaction: discord.Interaction):
+    await interaction.response.send_modal(CreateAgentModal())
+
+@bot.tree.command(name="join-voice")
+async def join_voice(interaction: discord.Interaction):
+    if interaction.user.voice:
+        await interaction.user.voice.channel.connect()
+        await interaction.response.send_message("Joined voice.")
+    else:
+        await interaction.response.send_message("Join a voice channel first.")
+
+# =========================================================
+# ------------------------ MODAL --------------------------
+# =========================================================
+
 class CreateAgentModal(discord.ui.Modal, title="Create AI Agent"):
 
     name = discord.ui.TextInput(label="Agent Name", max_length=30)
@@ -61,9 +176,8 @@ class CreateAgentModal(discord.ui.Modal, title="Create AI Agent"):
     system_prompt = discord.ui.TextInput(label="System Prompt", style=discord.TextStyle.paragraph)
 
     async def on_submit(self, interaction: discord.Interaction):
-
         try:
-            response = requests.post(
+            res = requests.post(
                 "http://127.0.0.1:8000/agents",
                 json={
                     "discord_id": str(interaction.user.id),
@@ -72,57 +186,37 @@ class CreateAgentModal(discord.ui.Modal, title="Create AI Agent"):
                     "personality": self.personality.value,
                     "backstory": self.backstory.value,
                     "system_prompt": self.system_prompt.value,
-                    "pfp_url": None
-                }
+                    "pfp_url": None,
+                },
             )
 
-            if response.status_code == 200:
+            if res.status_code == 200:
                 await interaction.response.send_message(
-                    f"Agent `{self.name.value}` created successfully.",
-                    ephemeral=True
+                    f"Agent `{self.name.value}` created.",
+                    ephemeral=True,
                 )
             else:
                 await interaction.response.send_message(
-                    f"Error: {response.json()}",
-                    ephemeral=True
+                    f"Error: {res.json()}",
+                    ephemeral=True,
                 )
 
         except Exception as e:
             await interaction.response.send_message(
                 f"Backend error: {e}",
-                ephemeral=True
+                ephemeral=True,
             )
 
 
-# ----------------------------
-# Events
-# ----------------------------
+# =========================================================
+# ------------------------- EVENTS ------------------------
+# =========================================================
+
 @bot.event
 async def on_ready():
     await bot.tree.sync()
+    print("Slash commands synced")
     print(f"Bot ready as {bot.user}")
-
-
-@bot.event
-async def on_message(message):
-    if message.author == bot.user:
-        return
-
-    if bot.user.mentioned_in(message):
-        clean_prompt = message.content.replace(f"<@!{bot.user.id}>", "").replace(f"<@{bot.user.id}>", "").strip()
-        async with message.channel.typing():
-            answer = ask_ollama(clean_prompt)
-            await message.reply(answer)
-
-    await bot.process_commands(message)
-
-
-# ----------------------------
-# Slash Command
-# ----------------------------
-@bot.tree.command(name="create-agent", description="Create a new AI agent")
-async def create_agent(interaction: discord.Interaction):
-    await interaction.response.send_modal(CreateAgentModal())
 
 
 bot.run(TOKEN)
