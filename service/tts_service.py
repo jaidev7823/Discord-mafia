@@ -18,15 +18,15 @@ async def speak(bot, channel, agent, message):
     if not voice_client or not voice_client.is_connected():
         return
 
-    if voice_client.is_playing():
-        return
+    # Wait for current audio to finish instead of skipping
+    while voice_client.is_playing():
+        await asyncio.sleep(0.2)
 
     clean_message = clean_text_for_tts(message)
     if not clean_message:
         return
 
     output_file = f"temp_{agent['id']}.wav"
-
     synthesize_to_file(clean_message, output_file)
 
     source = discord.FFmpegPCMAudio(output_file)

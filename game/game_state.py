@@ -9,7 +9,7 @@ class Role(Enum):
     DETECTIVE = "detective"
     CITIZEN = "citizen"
 
-class Phase(Enum):
+class Phase(str, Enum):
     DAY = "day"
     EVENING = "evening"
     NIGHT = "night"

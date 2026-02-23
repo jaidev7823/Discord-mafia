@@ -10,6 +10,11 @@ from service.llm_service import ask_ollama
 from service.tts_service import speak
 from prompt.prompt_builder import build_prompt
 
+from game.game_engine import GameEngine
+from game.game_state import GameState, Player, Role, Phase, active_games
+from sqlalchemy import text
+from db.database import SessionLocal
+
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
@@ -39,12 +44,6 @@ async def run_conversation(channel, agents, rounds=3):
 
 # -------------------- PHASE SYSTEM -----------------------
 
-class Phase:
-    DAY = "day"
-    EVENING = "evening"
-    NIGHT = "night"
-    MORNING = "morning"
-
 PHASE_DURATIONS = {
     Phase.DAY: 20,
     Phase.EVENING: 10,
@@ -65,22 +64,47 @@ async def phase_loop(channel):
     index = 0
 
     while True:
+        print("running phase loop, index:", index)
         current_phase = phases[index]
         duration = PHASE_DURATIONS[current_phase]
-
+        print(f"Phase: {current_phase}, Duration: {duration}s")
+        # Remove .value here since current_phase is now the enum member
         await channel.send(f"Phase started: {current_phase.upper()} ({duration}s)")
+        print("Running phase chat...")
         await run_phase_chat(channel, current_phase, duration)
 
         index = (index + 1) % len(phases)
+        await asyncio.sleep(1)  # Small delay between phases
 
 async def run_phase_chat(channel, phase, duration):
-    agents = get_agents(limit=10)
-    history = []
+    channel_id = channel.id
+    # print(channel_id, active_games.keys())
+    
+    # 1️⃣ Ensure game exists
+    if channel_id not in active_games:
+        await channel.send("No active game in this channel.")
+        return
 
+    game_state = active_games[channel_id]
+    print("Alive players:", game_state.get_alive_players())
+    print("Alive agent IDs set:", game_state.alive_agents)
+    print("All players:", game_state.players)
+    # 2️⃣ Load agent metadata once
+    all_agents = get_agents(limit=20)
+    agent_map = {a["id"]: a for a in all_agents}
+
+    history = []
     end_time = asyncio.get_event_loop().time() + duration
 
     while asyncio.get_event_loop().time() < end_time:
-        for agent in agents:
+
+        # 3️⃣ Loop only alive players
+        for player in game_state.get_alive_players():
+
+            agent = agent_map.get(player.agent_id)
+            if not agent:
+                continue
+
             prompt = build_prompt(agent, history, phase)
             message = ask_ollama(prompt)
 
@@ -89,7 +113,7 @@ async def run_phase_chat(channel, phase, duration):
                 "message": message
             })
 
-            await channel.send(f"[{phase.upper()}] {agent['name']}: {message}")
+            await channel.send(f"[{phase.value.upper()}] {agent['name']}: {message}")
             await speak(bot, channel, agent, message)
 
             await asyncio.sleep(1)
@@ -108,10 +132,10 @@ async def start_chat(interaction: discord.Interaction):
     agents = get_agents(limit=5)
 
     if len(agents) < 5:
-        await interaction.followup.send("Need at least 5 agents.")
+        await interaction.channel.send("Need at least 5 agents.")
         return
 
-    await interaction.followup.send("AI agents are starting...")
+    await interaction.channel.send("AI agents are starting...")
     await run_conversation(interaction.channel, agents)
 
 @bot.tree.command(name="join-voice")
@@ -136,6 +160,76 @@ async def stop_phases(interaction: discord.Interaction):
         await interaction.response.send_message("Phase loop stopped.")
     else:
         await interaction.response.send_message("No active phase loop.")
+
+@bot.tree.command(name="start-game")
+async def start_game(interaction: discord.Interaction):
+    await interaction.response.send_message("Starting game...")  # Add message content here
+
+    channel_id = interaction.channel.id
+
+    # Prevent duplicate game
+    if channel_id in active_games:
+        await interaction.channel.send("Game already running in this channel.")
+        return
+
+    # Rest of your code remains the same...
+    # Load agents from DB
+    agents = get_agents(limit=10)
+
+    if len(agents) < 3:
+        await interaction.channel.send("Need at least 3 agents.")
+        return
+
+    engine = GameEngine()
+
+    # 1️⃣ Create game row
+    game_id = engine.create_game()
+
+    agent_ids = [a["id"] for a in agents]
+
+    # 2️⃣ Add agents to game
+    engine.add_agents_to_game(game_id, agent_ids)
+
+    # 3️⃣ Assign roles
+    engine.assign_roles(game_id)
+
+    # 4️⃣ Load roles from DB
+    db = SessionLocal()
+    rows = db.execute(
+        text("""
+            SELECT gp.agent_id, gp.role, a.name
+            FROM game_players gp
+            JOIN agents a ON gp.agent_id = a.id
+            WHERE gp.game_id = :gid
+        """),
+        {"gid": game_id}
+    ).fetchall()
+    db.close()
+
+    # 5️⃣ Build in-memory players
+    players = {}
+
+    for agent_id, role_str, name in rows:
+        players[agent_id] = Player(
+            agent_id=agent_id,
+            name=name,
+            role=Role(role_str),
+            is_alive=True
+        )
+
+    # 6️⃣ Create GameState
+    game_state = GameState(
+        game_id=game_id,
+        phase=Phase.NIGHT,
+        players=players,
+        alive_agents=set(players.keys())
+    )
+
+    active_games[channel_id] = game_state
+
+    await interaction.channel.send(
+        f"Game started with {len(players)} players. Night begins."
+    )
 
 # =========================================================
 # ------------------------ MODAL --------------------------
