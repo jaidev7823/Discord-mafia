@@ -1,3 +1,4 @@
+# bot.py
 import discord
 import os
 import asyncio
@@ -6,14 +7,15 @@ from discord.ext import commands
 import requests
 
 from service.agent_repository import get_agents
+from service.action import run_doctor_action,run_killer_action,run_detective_action
 from service.llm_service import ask_ollama
 from service.tts_service import speak
-from prompt.prompt_builder import build_prompt
+from prompt.prompt_builder import build_prompt, build_night_decision_prompt
 
-from game.game_engine import GameEngine
 from game.game_state import GameState, Player, Role, Phase, active_games
 from sqlalchemy import text
 from db.database import SessionLocal
+from game.game_engine import GameEngine, resolve_night_logic, run_day_voting, resolve_day_vote
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -24,6 +26,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ---------------- CONVERSATION LOOP ----------------------
 
+
 async def run_conversation(channel, agents, rounds=3):
     history = []
 
@@ -32,64 +35,162 @@ async def run_conversation(channel, agents, rounds=3):
             prompt = build_prompt(agent, history)
             message = ask_ollama(prompt)
 
-            history.append({
-                "speaker": agent["name"],
-                "message": message
-            })
+            history.append({"speaker": agent["name"], "message": message})
 
             await channel.send(f"**{agent['name']}**: {message}")
             await speak(bot, channel, agent, message)
 
             await asyncio.sleep(1)
 
+
 # -------------------- PHASE SYSTEM -----------------------
 
 PHASE_DURATIONS = {
-    Phase.DAY: 20,
-    Phase.EVENING: 10,
-    Phase.NIGHT: 20,
-    Phase.MORNING: 10,
+    Phase.DAY: 20, # for ppl to vote suspect
+    Phase.EVENING: 10, # for doctor to choose who to save
+    Phase.NIGHT: 20, # for killer to choose who to kill
+    Phase.MORNING: 10, # for detective to choose who is suspect
 }
 
 phase_task = None
 
+
 async def phase_loop(channel):
     phases = [
-        Phase.DAY,
-        Phase.EVENING,
-        Phase.NIGHT,
-        Phase.MORNING,
+        Phase.DAY,        # Voting phase
+        Phase.EVENING,    # Doctor save phase  
+        Phase.NIGHT,      # Killer kill phase
+        Phase.MORNING,    # Detective investigate phase
     ]
-
+    
     index = 0
-
+    game_state = active_games.get(channel.id)
+    if not game_state:
+        return
+    
     while True:
-        print("running phase loop, index:", index)
-        current_phase = phases[index]
-        duration = PHASE_DURATIONS[current_phase]
-        print(f"Phase: {current_phase}, Duration: {duration}s")
-        # Remove .value here since current_phase is now the enum member
-        await channel.send(f"Phase started: {current_phase.upper()} ({duration}s)")
-        print("Running phase chat...")
-        await run_phase_chat(channel, current_phase, duration)
+        try:  # Add try/catch here
+            current_phase = phases[index]
+            duration = PHASE_DURATIONS[current_phase]
 
-        index = (index + 1) % len(phases)
-        await asyncio.sleep(1)  # Small delay between phases
+            await channel.send(f"⏰ **{current_phase.value.upper()} PHASE STARTED** ({duration} seconds)")
 
+            # PHASE 1: DAY - All agents vote for suspect
+            if current_phase == Phase.DAY:
+                await run_day_voting(channel, game_state, duration)
+
+                # After voting, check if someone should be eliminated
+                eliminated_id = await resolve_day_vote(game_state)
+                if eliminated_id:
+                    name = game_state.players[eliminated_id].name
+                    await channel.send(f"💀 **{name} was eliminated by vote!**")
+                    game_state.kill_player(eliminated_id, "voted out")
+
+                    # Sync to DB
+                    engine = GameEngine()
+                    engine.eliminate_player(game_state.game_id, eliminated_id, "vote")
+
+                    # Check win condition
+                    winner = game_state.check_win_condition()
+                    if winner:
+                        await channel.send(f"🏆 **{winner.upper()} WIN!**")
+                        del active_games[channel.id]
+                        return
+
+            # PHASE 2: EVENING - Doctor saves someone
+            elif current_phase == Phase.EVENING:
+                save_target = await run_doctor_action(channel, game_state, duration)
+                if save_target:
+                    game_state.last_night_saved = save_target
+                    await channel.send(f"🩺 **Doctor is protecting someone tonight...**")
+
+            # PHASE 3: NIGHT - Killer kills someone
+            # PHASE 3: NIGHT - Killer kills someone
+            elif current_phase == Phase.NIGHT:
+                kill_target = await run_killer_action(channel, game_state, duration)
+
+                # Resolve night actions
+                dead_player = resolve_night_logic(
+                    game_state, 
+                    kill_target, 
+                    game_state.last_night_saved
+                )
+
+                if dead_player:
+                    name = game_state.players[dead_player].name
+                    await channel.send(f"🔪 **{name} was killed during the night!**")
+
+                    # Sync to DB
+                    engine = GameEngine()
+                    engine.resolve_night(game_state.game_id, kill_target, game_state.last_night_saved)
+
+                    # Check win condition
+                    winner = game_state.check_win_condition()
+                    if winner:
+                        await channel.send(f"🏆 **{winner.upper()} WIN!**")
+                        del active_games[channel.id]
+                        return  # Only exit if there's a winner
+                else:
+                    await channel.send("🌙 **No one died last night...**")
+
+                # Reset doctor's save for next night
+                game_state.last_night_saved = None
+
+                # Move to next phase
+                index = (index + 1) % len(phases)
+                game_state.phase = phases[index]
+                game_state.reset_night_actions()
+
+
+            # PHASE 4: MORNING - Detective investigates
+            elif current_phase == Phase.MORNING:
+                investigation = await run_detective_action(channel, game_state, duration)
+                if investigation:
+                    target_id, is_killer = investigation
+                    target_name = game_state.players[target_id].name
+                    result = "🔪 **IS A KILLER!**" if is_killer else "👤 **is NOT a killer**"
+                    await channel.send(f"🕵️ **Detective's investigation: {target_name}** {result}")
+
+                    # Store in detective's memory
+                    detective = game_state.get_detective()
+                    if detective:
+                        detective.knows_role_of[target_id] = Role.KILLER if is_killer else Role.CITIZEN
+
+                    # Log to DB
+                    engine = GameEngine()
+                    engine.log_investigation(game_state.game_id, target_id, is_killer)
+
+            # Move to next phase
+            index = (index + 1) % len(phases)
+            game_state.phase = phases[index]
+            game_state.reset_night_actions()  # Clear all night actions for next round
+        
+            # Brief pause between phases
+            await asyncio.sleep(2)
+
+        except Exception as e:
+            await channel.send(f"❌ **Error in phase loop:** {str(e)}")
+            print(f"CRITICAL ERROR in phase_loop: {e}")
+            import traceback
+            traceback.print_exc()
+            # Don't return - try to continue
+            await asyncio.sleep(5)
+            
 async def run_phase_chat(channel, phase, duration):
     channel_id = channel.id
     # print(channel_id, active_games.keys())
-    
+
     # 1️⃣ Ensure game exists
     if channel_id not in active_games:
         await channel.send("No active game in this channel.")
         return
 
     game_state = active_games[channel_id]
-    print("Alive players:", game_state.get_alive_players())
-    print("Alive agent IDs set:", game_state.alive_agents)
-    print("All players:", game_state.players)
+    # print("Alive players:", game_state.get_alive_players())
+    # print("Alive agent IDs set:", game_state.alive_agents)
+    # print("All players:", game_state.players)
     # 2️⃣ Load agent metadata once
+    
     all_agents = get_agents(limit=20)
     agent_map = {a["id"]: a for a in all_agents}
 
@@ -108,10 +209,7 @@ async def run_phase_chat(channel, phase, duration):
             prompt = build_prompt(agent, history, phase)
             message = ask_ollama(prompt)
 
-            history.append({
-                "speaker": agent["name"],
-                "message": message
-            })
+            history.append({"speaker": agent["name"], "message": message})
 
             await channel.send(f"[{phase.value.upper()}] {agent['name']}: {message}")
             await speak(bot, channel, agent, message)
@@ -121,9 +219,11 @@ async def run_phase_chat(channel, phase, duration):
             if asyncio.get_event_loop().time() >= end_time:
                 break
 
+
 # =========================================================
 # -------------------- SLASH COMMANDS ---------------------
 # =========================================================
+
 
 @bot.tree.command(name="start-chat", description="Start AI agents conversation")
 async def start_chat(interaction: discord.Interaction):
@@ -138,6 +238,7 @@ async def start_chat(interaction: discord.Interaction):
     await interaction.channel.send("AI agents are starting...")
     await run_conversation(interaction.channel, agents)
 
+
 @bot.tree.command(name="join-voice")
 async def join_voice(interaction: discord.Interaction):
     if interaction.user.voice:
@@ -146,11 +247,13 @@ async def join_voice(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("Join a voice channel first.")
 
+
 @bot.tree.command(name="start-phases")
 async def start_phases(interaction: discord.Interaction):
     global phase_task
     await interaction.response.send_message("Starting phase loop.")
     phase_task = bot.loop.create_task(phase_loop(interaction.channel))
+
 
 @bot.tree.command(name="stop-phases")
 async def stop_phases(interaction: discord.Interaction):
@@ -161,9 +264,12 @@ async def stop_phases(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("No active phase loop.")
 
+
 @bot.tree.command(name="start-game")
 async def start_game(interaction: discord.Interaction):
-    await interaction.response.send_message("Starting game...")  # Add message content here
+    await interaction.response.send_message(
+        "Starting game..."
+    )  # Add message content here
 
     channel_id = interaction.channel.id
 
@@ -181,7 +287,7 @@ async def start_game(interaction: discord.Interaction):
         return
 
     engine = GameEngine()
-
+    
     # 1️⃣ Create game row
     game_id = engine.create_game()
 
@@ -196,13 +302,15 @@ async def start_game(interaction: discord.Interaction):
     # 4️⃣ Load roles from DB
     db = SessionLocal()
     rows = db.execute(
-        text("""
+        text(
+            """
             SELECT gp.agent_id, gp.role, a.name
             FROM game_players gp
             JOIN agents a ON gp.agent_id = a.id
             WHERE gp.game_id = :gid
-        """),
-        {"gid": game_id}
+        """
+        ),
+        {"gid": game_id},
     ).fetchall()
     db.close()
 
@@ -211,10 +319,7 @@ async def start_game(interaction: discord.Interaction):
 
     for agent_id, role_str, name in rows:
         players[agent_id] = Player(
-            agent_id=agent_id,
-            name=name,
-            role=Role(role_str),
-            is_alive=True
+            agent_id=agent_id, name=name, role=Role(role_str), is_alive=True
         )
 
     # 6️⃣ Create GameState
@@ -222,7 +327,7 @@ async def start_game(interaction: discord.Interaction):
         game_id=game_id,
         phase=Phase.NIGHT,
         players=players,
-        alive_agents=set(players.keys())
+        alive_agents=set(players.keys()),
     )
 
     active_games[channel_id] = game_state
@@ -231,16 +336,24 @@ async def start_game(interaction: discord.Interaction):
         f"Game started with {len(players)} players. Night begins."
     )
 
+
 # =========================================================
 # ------------------------ MODAL --------------------------
 # =========================================================
 
+
 class CreateAgentModal(discord.ui.Modal, title="Create AI Agent"):
 
     name = discord.ui.TextInput(label="Agent Name", max_length=30)
-    personality = discord.ui.TextInput(label="Personality", style=discord.TextStyle.paragraph)
-    backstory = discord.ui.TextInput(label="Backstory", style=discord.TextStyle.paragraph)
-    system_prompt = discord.ui.TextInput(label="System Prompt", style=discord.TextStyle.paragraph)
+    personality = discord.ui.TextInput(
+        label="Personality", style=discord.TextStyle.paragraph
+    )
+    backstory = discord.ui.TextInput(
+        label="Backstory", style=discord.TextStyle.paragraph
+    )
+    system_prompt = discord.ui.TextInput(
+        label="System Prompt", style=discord.TextStyle.paragraph
+    )
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
@@ -274,18 +387,22 @@ class CreateAgentModal(discord.ui.Modal, title="Create AI Agent"):
                 ephemeral=True,
             )
 
+
 @bot.tree.command(name="create-agent")
 async def create_agent(interaction: discord.Interaction):
     await interaction.response.send_modal(CreateAgentModal())
 
+
 # =========================================================
 # ------------------------- EVENTS ------------------------
 # =========================================================
+
 
 @bot.event
 async def on_ready():
     await bot.tree.sync()
     print("Slash commands synced")
     print(f"Bot ready as {bot.user}")
+
 
 bot.run(TOKEN)

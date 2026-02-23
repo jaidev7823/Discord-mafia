@@ -1,4 +1,4 @@
-# game_state.py
+# game/game_state.py
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 from enum import Enum
@@ -51,6 +51,17 @@ class GameState:
         """Get all alive players with specific role"""
         return [p for p in self.players.values() if p.is_alive and p.role == role]
     
+    # In game/game_state.py, add these methods:
+    def get_doctor(self) -> Optional[Player]:
+        """Get the alive doctor"""
+        doctors = self.get_alive_by_role(Role.DOCTOR)
+        return doctors[0] if doctors else None
+    
+    def get_detective(self) -> Optional[Player]:
+        """Get the alive detective"""
+        detectives = self.get_alive_by_role(Role.DETECTIVE)
+        return detectives[0] if detectives else None
+
     def get_killer(self) -> Optional[Player]:
         """Get the alive killer (should be only one)"""
         killers = self.get_alive_by_role(Role.KILLER)
