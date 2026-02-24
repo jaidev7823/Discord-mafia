@@ -1,7 +1,7 @@
 # service/action.py
 from service.agent_repository import get_agents
 from service.llm_service import ask_ollama
-from prompt.prompt_builder import build_night_decision_prompt,build_kill_prompt,build_save_prompt,build_doctor_decision_prompt,build_investigate_prompt
+from prompt.prompt_builder import build_night_decision_prompt,build_kill_prompt,build_doctor_decision_prompt,build_investigate_prompt
 
 from game.game_engine import GameEngine
 from game.game_state import Role
@@ -22,10 +22,12 @@ async def run_killer_action(channel, game_state, duration):
     if not killer_agent:
         return None
     
-    await channel.send(f"🔪 **Killer {killer.name} is choosing their target...**")
-    
+    await channel.send(f"🔪 **Killer {killer.name} is choosing their target...**")    
+    # Include the killer's discussion in the prompt
+    discussion = getattr(game_state, 'last_killer_discussion', [])
+    discussion_text = "\n".join([f"{msg['speaker']}: {msg['message']}" for msg in discussion[-5:]])
     # Build kill prompt
-    prompt = build_kill_prompt(killer_agent, game_state)
+    prompt = build_kill_prompt(killer_agent, game_state, discussion_text)
     response = ask_ollama(prompt).strip()
     
     try:

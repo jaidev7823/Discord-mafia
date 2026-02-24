@@ -52,6 +52,8 @@ class GameState:
     last_night_saved: Optional[int] = None
     last_night_investigation: Optional[tuple] = None  # (detective_id, target_id, is_killer)
     last_discussion: List[Dict] = field(default_factory=list)   
+    last_killer_discussion: List[Dict] = field(default_factory=list)  # ← ADD THIS
+
     # Vote tracking
     current_votes: Dict[int, int] = field(default_factory=dict)  # voter_id -> target_id
     

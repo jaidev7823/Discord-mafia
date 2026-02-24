@@ -12,6 +12,12 @@ Talk casually in a group chat.
 Keep response 1 short line.
 Current Phase: {phase_text}
 
+STRICT RULES:
+- ONE SENTENCE ONLY
+- No asterisks or actions like *leans in*
+- No descriptions of movements or tone
+- No quotation marks around your speech
+- Just speak normally
 Behavior Rules by Phase:
 
 DAY:
@@ -86,6 +92,13 @@ Your role: {agent.get('role', 'unknown')}
 Alive players:
 {alive_list}
 
+STRICT RULES:
+- ONE SENTENCE ONLY
+- No asterisks or actions like *leans in*
+- No descriptions of movements or tone
+- No quotation marks around your speech
+- Just speak normally
+
 TASK: Vote for who you SUSPECT the most.
 Return ONLY the agent_id number of your vote.
 Do not explain. Do not add any text.
@@ -108,7 +121,12 @@ Your ID: {agent['id']}
 
 Alive players you can save (cannot save yourself):
 {alive_list}
-
+STRICT RULES:
+- ONE SENTENCE ONLY
+- No asterisks or actions like *leans in*
+- No descriptions of movements or tone
+- No quotation marks around your speech
+- Just speak normally
 TASK: Choose ONE player to SAVE from the killer tonight.
 You must return ONLY the agent_id number of who you save.
 Do not add any extra text, explanations, or formatting.
@@ -121,7 +139,7 @@ Example correct responses:
 
 Your response (just the number):"""
 
-def build_kill_prompt(agent, game_state):
+def build_kill_prompt(agent, game_state, discussion_text):
     """Prompt for NIGHT phase - killer only"""
     alive_players = game_state.get_alive_players()
     # Remove self from targets
@@ -132,9 +150,16 @@ def build_kill_prompt(agent, game_state):
     
     return f"""
 You are {agent['name']} and you are the KILLER.
-
+STRICT RULES:
+- ONE SENTENCE ONLY
+- No asterisks or actions like *leans in*
+- No descriptions of movements or tone
+- No quotation marks around your speech
+- Just speak normally
 Alive players you can kill:
 {alive_list}
+
+{discussion_text}
 
 TASK: Choose ONE player to KILL tonight.
 Return ONLY the agent_id number of your target.
@@ -152,7 +177,12 @@ def build_investigate_prompt(agent, game_state):
     
     return f"""
 You are {agent['name']} and you are the DETECTIVE.
-
+STRICT RULES:
+- ONE SENTENCE ONLY
+- No asterisks or actions like *leans in*
+- No descriptions of movements or tone
+- No quotation marks around your speech
+- Just speak normally
 Alive players you can investigate:
 {alive_list}
 
@@ -189,6 +219,13 @@ def build_discussion_prompt(agent, role, history, phase_tone, game_state):
 You are {agent['name']} in a Mafia game.
 {role_context}
 
+STRICT RULES:
+- ONE SENTENCE ONLY
+- No asterisks or actions like *leans in*
+- No descriptions of movements or tone
+- No quotation marks around your speech
+- Just speak normally
+
 Alive players:
 {alive_list}
 
@@ -221,7 +258,12 @@ Based on the discussion you just had:
 
 Alive players you can vote for:
 {alive_list}
-
+STRICT RULES:
+- ONE SENTENCE ONLY
+- No asterisks or actions like *leans in*
+- No descriptions of movements or tone
+- No quotation marks around your speech
+- Just speak normally
 TASK: Vote for who you SUSPECT the most.
 Consider what everyone said during discussion.
 Return ONLY the agent_id number.
@@ -243,7 +285,12 @@ You are the DOCTOR. Based on this discussion:
 
 Alive players (with their IDs):
 {player_list}
-
+STRICT RULES:
+- ONE SENTENCE ONLY
+- No asterisks or actions like *leans in*
+- No descriptions of movements or tone
+- No quotation marks around your speech
+- Just speak normally
 TASK: Choose ONE player to save tonight.
 You MUST return ONLY the agent_id number.
 Do not add any text, just the number.
@@ -251,3 +298,29 @@ Do not add any text, just the number.
 Example correct response: 5
 
 Your response (just the number):"""
+
+def build_killer_discussion_prompt(agent, other_killers, alive_targets, discussion_history):
+    """Prompt for killer private discussion"""
+    
+    other_killers_text = ', '.join([k.name for k in other_killers]) if other_killers else "None (you're alone)"
+    
+    targets_text = "\n".join([f"• {p.name}" for p in alive_targets])
+    
+    recent_discussion = "\n".join([f"{msg['speaker']}: {msg['message']}" for msg in discussion_history[-5:]]) if discussion_history else "Discussion starting."
+    
+    return f"""You are {agent['name']} and you are a KILLER discussing with your fellow killers.
+Other killers: {other_killers_text}
+STRICT RULES:
+- ONE SENTENCE ONLY
+- No asterisks or actions like *leans in*
+- No descriptions of movements or tone
+- No quotation marks around your speech
+- Just speak normally
+Potential targets (non-killers):
+{targets_text}
+
+Recent discussion:
+{recent_discussion}
+
+What do you say? Propose a target, give reasons, or respond to others.
+Keep it to 1-2 sentences."""

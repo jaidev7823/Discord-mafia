@@ -10,8 +10,8 @@ from service.agent_repository import get_agents
 from service.action import run_doctor_action,run_killer_action,run_detective_action
 from service.llm_service import ask_ollama
 from service.tts_service import speak
-from prompt.prompt_builder import build_prompt, build_night_decision_prompt
-from service.discussion import run_discussion_phase
+from prompt.prompt_builder import build_prompt
+from service.discussion import run_discussion_phase, run_killer_discussion
 
 from game.game_state import GameState, Player, Role, Phase, active_games
 from sqlalchemy import text
@@ -58,7 +58,8 @@ PHASE_DURATIONS = {
 phase_task = None
 
 async def phase_loop(channel):
-    phases = [ # DAY CYCLE
+    phases = [
+        # DAY CYCLE
         Phase.MORNING_DISCUSSION,
         Phase.MORNING_VOTING,
         
@@ -82,11 +83,16 @@ async def phase_loop(channel):
             duration = PHASE_DURATIONS[current_phase]
 
             await channel.send(f"⏰ **{current_phase.value.upper()}** ({duration} seconds)")
-            print(current_phase.value)
+            
             # HANDLE EACH PHASE TYPE
             if current_phase.value.endswith("discussion"):
-                print("we are discussing")
-                await run_discussion_phase(bot, channel, game_state, duration, current_phase)  # ← Add bot  
+                if current_phase == Phase.NIGHT_DISCUSSION:
+                    # 🔪 KILLER-ONLY PRIVATE DISCUSSION
+                    await run_killer_discussion(channel, game_state, duration)
+                else:
+                    # 👥 ALL-PLAYER DISCUSSION (morning/evening)
+                    await run_discussion_phase(bot, channel, game_state, duration, current_phase)
+            
             elif current_phase == Phase.MORNING_VOTING:
                 await run_day_voting(channel, game_state, duration)
                 # After voting, check if someone should be eliminated
@@ -113,14 +119,17 @@ async def phase_loop(channel):
                     game_state.last_night_saved = save_target
 
             elif current_phase == Phase.NIGHT_ACTION:
-                # Run both killer and detective actions
+                # Run killer action (with discussion context from NIGHT_DISCUSSION)
                 kill_target = await run_killer_action(channel, game_state, duration)
+                
+                # Run detective action
                 investigation = await run_detective_action(channel, game_state, duration)
 
-                # Resolve night
+                # Resolve night actions (kill vs save)
                 dead_player = resolve_night_logic(
                     game_state, kill_target, game_state.last_night_saved
                 )
+                
                 if dead_player:
                     name = game_state.players[dead_player].name
                     await channel.send(f"🔪 **{name} was killed during the night!**")
@@ -138,7 +147,7 @@ async def phase_loop(channel):
                 else:
                     await channel.send("🌙 **No one died last night...**")
 
-                # Handle investigation if detective is alive
+                # Handle investigation result if detective is alive and acted
                 if investigation:
                     target_id, is_killer = investigation
                     target_name = game_state.players[target_id].name
@@ -156,8 +165,11 @@ async def phase_loop(channel):
 
                 # Reset doctor's save for next night
                 game_state.last_night_saved = None
+                
+                # Clear killer discussion after action is taken
+                game_state.last_killer_discussion = []
 
-            # ✅ SINGLE PHASE ADVANCEMENT (ONCE PER LOOP)
+            # ✅ SINGLE PHASE ADVANCEMENT
             index = (index + 1) % len(phases)
             game_state.phase = phases[index]
             game_state.reset_night_actions()
@@ -170,7 +182,7 @@ async def phase_loop(channel):
             print(f"CRITICAL ERROR in phase_loop: {e}")
             import traceback
             traceback.print_exc()
-            await asyncio.sleep(5)           
+            await asyncio.sleep(5)      
 
 async def run_phase_chat(channel, phase, duration):
     channel_id = channel.id
