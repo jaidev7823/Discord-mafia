@@ -97,19 +97,31 @@ Just the number.
 def build_save_prompt(agent, game_state):
     """Prompt for EVENING phase - doctor only"""
     alive_players = game_state.get_alive_players()
-    alive_list = "\n".join([f"- ID {p.agent_id}: {p.name}" for p in alive_players])
+    # Remove self from targets (doctor can't save themselves usually)
+    alive_list = "\n".join([
+        f"- ID {p.agent_id}: {p.name}" 
+        for p in alive_players if p.agent_id != agent['id']
+    ])
     
-    return f"""
-You are {agent['name']} and you are the DOCTOR.
+    return f"""You are {agent['name']} and you are the DOCTOR in a Mafia game.
 
-Alive players you can save:
+Your role: DOCTOR
+Your ID: {agent['id']}
+
+Alive players you can save (cannot save yourself):
 {alive_list}
 
 TASK: Choose ONE player to SAVE from the killer tonight.
-Return ONLY the agent_id number of who you save.
-Do not explain. Just the number.
-"""
+You must return ONLY the agent_id number of who you save.
+Do not add any extra text, explanations, or formatting.
+Just a single number.
 
+Example correct responses:
+5
+12
+3
+
+Your response (just the number):"""
 def build_kill_prompt(agent, game_state):
     """Prompt for NIGHT phase - killer only"""
     alive_players = game_state.get_alive_players()

@@ -123,31 +123,53 @@ async def run_doctor_action(channel, game_state, duration):
     prompt = build_save_prompt(doctor_agent, game_state)
     response = ask_ollama(prompt).strip()
     
-    try:
-        # Parse response: "SAVE: 5" or just the number
-        if ":" in response:
-            target_id = int(response.split(":")[1].strip())
-        else:
-            target_id = int(response)
-        
-        # Validate target is alive
-        if target_id in game_state.alive_agents:
-            await channel.send(f"✅ Doctor chose to save {game_state.players[target_id].name}")
-            
-            # Log to database
-            engine = GameEngine()
-            engine.log_action(game_state.game_id, doctor.agent_id, target_id, "night_save")
-            
-            return target_id
-        else:
-            await channel.send("⚠ Doctor chose an invalid target - no one saved")
-            
-    except (ValueError, IndexError):
-        await channel.send("⚠ Doctor failed to choose - no one saved")
+    # More flexible parsing
+    target_id = None
     
-    return None
-
-
+    # Method 1: Try to extract number after "SAVE:"
+    if "SAVE:" in response.upper():
+        try:
+            parts = response.upper().split("SAVE:")
+            if len(parts) > 1:
+                # Extract all numbers from the text after SAVE:
+                import re
+                numbers = re.findall(r'\d+', parts[1])
+                if numbers:
+                    target_id = int(numbers[0])
+        except:
+            pass
+    
+    # Method 2: Try to find any number in the response
+    if target_id is None:
+        import re
+        numbers = re.findall(r'\d+', response)
+        if numbers:
+            target_id = int(numbers[0])
+    
+    # Method 3: Try direct int conversion
+    if target_id is None:
+        try:
+            target_id = int(response)
+        except:
+            pass
+    
+    # Validate the target
+    if target_id and target_id in game_state.alive_agents:
+        if target_id == doctor.agent_id:
+            await channel.send(f"⚠ Doctor tried to save themselves - not allowed!")
+            return None
+            
+        target_name = game_state.players[target_id].name
+        await channel.send(f"✅ Doctor chose to save **{target_name}**")
+        
+        # Log to database
+        engine = GameEngine()
+        engine.log_action(game_state.game_id, doctor.agent_id, target_id, "night_save")
+        
+        return target_id
+    else:
+        await channel.send(f"⚠ Doctor failed to choose a valid target (response: '{response}')")
+        return None
 
 async def collect_night_actions(channel, game_state):
     all_agents = get_agents(limit=20)

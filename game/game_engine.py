@@ -186,18 +186,24 @@ class GameEngine:
     # -------------------------
     # 6️⃣ Log Action
     # -------------------------
+    # In GameEngine.log_action()
     def log_action(self, game_id, actor_id, target_id, action_type):
         """Log a night action to the database"""
         db = SessionLocal()
         try:
+            print(f"Logging action: game={game_id}, actor={actor_id}, target={target_id}, type={action_type}")
             action = Vote(
                 game_id=game_id,
-                phase=action_type,  # night_kill, night_save, etc.
-                voter_agent_id=actor_id,
-                target_agent_id=target_id
+                phase=action_type,
+                voter_agent_id=actor_id,  # This should match your column name
+                target_agent_id=target_id  # This should match your column name
             )
             db.add(action)
             db.commit()
+            print("Action logged successfully")
+        except Exception as e:
+            print(f"Error logging action: {e}")
+            db.rollback()
         finally:
             db.close()
 
