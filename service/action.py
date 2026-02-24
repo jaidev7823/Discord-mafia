@@ -120,7 +120,6 @@ async def run_doctor_action(channel, game_state, duration):
     await channel.send(f"🩺 **Doctor {doctor.name} is choosing who to save...**")
     
     # Build save prompt
-    # prompt = build_save_prompt(doctor_agent, game_state)
     prompt = build_doctor_decision_prompt(
         doctor_agent, 
         game_state.last_discussion,  # Pass the discussion
@@ -128,35 +127,38 @@ async def run_doctor_action(channel, game_state, duration):
     ) 
     response = ask_ollama(prompt).strip()
     
-    # More flexible parsing
+    print(f"DEBUG - Doctor response: '{response}'")  # Add this to see responses
+    
     target_id = None
     
-    # Method 1: Try to extract number after "SAVE:"
-    if "SAVE:" in response.upper():
-        try:
-            parts = response.upper().split("SAVE:")
-            if len(parts) > 1:
-                # Extract all numbers from the text after SAVE:
-                import re
-                numbers = re.findall(r'\d+', parts[1])
-                if numbers:
-                    target_id = int(numbers[0])
-        except:
-            pass
+    # METHOD 1: Try to find a number anywhere in the response
+    import re
+    numbers = re.findall(r'\d+', response)
+    if numbers:
+        target_id = int(numbers[0])
     
-    # Method 2: Try to find any number in the response
+    # METHOD 2: Try to match by name (if numbers didn't work)
     if target_id is None:
-        import re
-        numbers = re.findall(r'\d+', response)
-        if numbers:
-            target_id = int(numbers[0])
+        for player in game_state.get_alive_players():
+            if player.agent_id != doctor.agent_id:  # Can't save self
+                if player.name.lower() in response.lower():
+                    target_id = player.agent_id
+                    print(f"Matched by name: {player.name} -> ID {target_id}")
+                    break
     
-    # Method 3: Try direct int conversion
+    # METHOD 3: Look for patterns like "save X" or "protect X"
     if target_id is None:
-        try:
-            target_id = int(response)
-        except:
-            pass
+        save_patterns = ['save', 'protect', 'heal', 'help']
+        words = response.lower().split()
+        for i, word in enumerate(words):
+            if word in save_patterns and i+1 < len(words):
+                # Check if next word is a name
+                possible_name = words[i+1].strip(':,.;!?')
+                for player in game_state.get_alive_players():
+                    if player.agent_id != doctor.agent_id:
+                        if player.name.lower() == possible_name.lower():
+                            target_id = player.agent_id
+                            break
     
     # Validate the target
     if target_id and target_id in game_state.alive_agents:

@@ -73,8 +73,6 @@ Do not speak.
 Return only the action.
 """
 
-# prompt/prompt_builder.py (add these functions)
-
 def build_vote_prompt(agent, game_state):
     """Prompt for DAY phase - all agents vote"""
     alive_players = game_state.get_alive_players()
@@ -122,6 +120,7 @@ Example correct responses:
 3
 
 Your response (just the number):"""
+
 def build_kill_prompt(agent, game_state):
     """Prompt for NIGHT phase - killer only"""
     alive_players = game_state.get_alive_players()
@@ -162,10 +161,6 @@ Return ONLY the agent_id number of who you investigate.
 Do not explain. Just the number.
 """
 
-
-# prompt/prompt_builder.py - Add these
-
-# prompt/prompt_builder.py
 def build_discussion_prompt(agent, role, history, phase_tone, game_state):
     """Prompt for discussion phases"""
     
@@ -232,19 +227,27 @@ Consider what everyone said during discussion.
 Return ONLY the agent_id number.
 """
 
-# prompt/prompt_builder.py - Doctor decision with context
 def build_doctor_decision_prompt(agent, discussion_history, game_state):
     discussion_summary = "\n".join([
         f"{msg['speaker']}: {msg['message']}"
         for msg in discussion_history[-20:]
-    ])
+    ]) if discussion_history else "No discussion yet."
+    
+    alive_players = game_state.get_alive_players()
+    player_list = "\n".join([f"ID {p.agent_id}: {p.name}" for p in alive_players if p.agent_id != agent['id']])
     
     return f"""
 You are the DOCTOR. Based on this discussion:
 
 {discussion_summary}
 
-Who seems most worth saving? Who is suspicious?
-Choose ONE player to save tonight.
-Return ONLY their agent_id number.
-"""
+Alive players (with their IDs):
+{player_list}
+
+TASK: Choose ONE player to save tonight.
+You MUST return ONLY the agent_id number.
+Do not add any text, just the number.
+
+Example correct response: 5
+
+Your response (just the number):"""
