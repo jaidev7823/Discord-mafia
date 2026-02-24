@@ -9,12 +9,20 @@ class Role(Enum):
     DETECTIVE = "detective"
     CITIZEN = "citizen"
 
-class Phase(str, Enum):
-    DAY = "day"
-    EVENING = "evening"
-    NIGHT = "night"
-    MORNING = "morning"
+# class Phase(str, Enum):
+#     DAY = "day"
+#     EVENING = "evening"
+#     NIGHT = "night"
+#     MORNING = "morning"
 
+class Phase(str, Enum):
+    MORNING_DISCUSSION = "morning_discussion"
+    MORNING_VOTING = "morning_voting"
+    EVENING_DISCUSSION = "evening_discussion"
+    EVENING_ACTION = "evening_action"
+    NIGHT_DISCUSSION = "night_discussion"
+    NIGHT_ACTION = "night_action"
+    
 @dataclass
 class Player:
     agent_id: int
@@ -43,7 +51,7 @@ class GameState:
     last_night_kill_attempt: Optional[int] = None
     last_night_saved: Optional[int] = None
     last_night_investigation: Optional[tuple] = None  # (detective_id, target_id, is_killer)
-    
+    last_discussion: List[Dict] = field(default_factory=list)   
     # Vote tracking
     current_votes: Dict[int, int] = field(default_factory=dict)  # voter_id -> target_id
     
@@ -98,4 +106,5 @@ class GameState:
         return None
 
 # Global game state storage (in-memory, per channel/guild)
-active_games: Dict[int, GameState] = {}  # channel_id -> GameState
+active_games: Dict[int, GameState] = {}  # channel_id -> GameStatoe
+

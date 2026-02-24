@@ -161,3 +161,90 @@ TASK: Choose ONE player to INVESTIGATE and learn if they are the killer.
 Return ONLY the agent_id number of who you investigate.
 Do not explain. Just the number.
 """
+
+
+# prompt/prompt_builder.py - Add these
+
+# prompt/prompt_builder.py
+def build_discussion_prompt(agent, role, history, phase_tone, game_state):
+    """Prompt for discussion phases"""
+    
+    # Format recent conversation
+    recent = "\n".join([
+        f"{msg['speaker']}: {msg['message']}" 
+        for msg in history[-8:]
+    ]) if history else "The discussion is just starting."
+    
+    # Get alive players list
+    alive_players = game_state.get_alive_players()
+    alive_list = "\n".join([f"  • {p.name}" for p in alive_players])
+    
+    # Add role-specific context
+    role_context = ""
+    if role.value == "killer":
+        role_context = "You are the KILLER. Blend in and avoid suspicion."
+    elif role.value == "detective":
+        role_context = "You are the DETECTIVE. Gather information subtly."
+    elif role.value == "doctor":
+        role_context = "You are the DOCTOR. Listen carefully to decide who to save."
+    else:
+        role_context = "You are a CITIZEN. Try to find the killer."
+    
+    return f"""
+You are {agent['name']} in a Mafia game.
+{role_context}
+
+Alive players:
+{alive_list}
+
+Current phase: {phase_tone}
+
+Recent conversation:
+{recent}
+
+What do you say now? React to what others said or share your thoughts.
+Keep response to 1-2 sentences. Be natural and in-character.
+"""
+
+def build_voting_prompt_with_context(agent, role, discussion_history, game_state):
+    """Voting prompt that uses the discussion context"""
+    
+    # Summarize key moments from discussion
+    discussion_summary = "\n".join([
+        f"{msg['speaker']} ({msg['role']}): {msg['message']}"
+        for msg in discussion_history[-15:]  # Last 15 messages
+    ])
+    
+    alive_players = game_state.get_alive_players()
+    alive_list = "\n".join([f"- ID {p.agent_id}: {p.name}" for p in alive_players])
+    
+    return f"""
+You are {agent['name']} ({role.value.upper()}).
+Based on the discussion you just had:
+
+{discussion_summary}
+
+Alive players you can vote for:
+{alive_list}
+
+TASK: Vote for who you SUSPECT the most.
+Consider what everyone said during discussion.
+Return ONLY the agent_id number.
+"""
+
+# prompt/prompt_builder.py - Doctor decision with context
+def build_doctor_decision_prompt(agent, discussion_history, game_state):
+    discussion_summary = "\n".join([
+        f"{msg['speaker']}: {msg['message']}"
+        for msg in discussion_history[-20:]
+    ])
+    
+    return f"""
+You are the DOCTOR. Based on this discussion:
+
+{discussion_summary}
+
+Who seems most worth saving? Who is suspicious?
+Choose ONE player to save tonight.
+Return ONLY their agent_id number.
+"""

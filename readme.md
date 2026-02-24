@@ -58,3 +58,16 @@ phase_loop()
     │
     └── game_state.check_win_condition()
         └── del active_games[channel.id] if winner
+
+
+DAY
+  ├── MORNING DISCUSSION (60s) → All agents talk
+  └── MORNING VOTING (20s) → All agents vote
+
+EVENING
+  ├── EVENING DISCUSSION (30s) → All agents talk (doctor listens)
+  └── EVENING ACTION (10s) → Doctor saves
+
+NIGHT
+  ├── NIGHT DISCUSSION (30s) → All agents talk (killer blends)
+  └── NIGHT ACTION (20s) → Killer kills + Detective investigates

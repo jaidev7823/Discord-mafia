@@ -1,7 +1,7 @@
 # service/action.py
 from service.agent_repository import get_agents
 from service.llm_service import ask_ollama
-from prompt.prompt_builder import build_night_decision_prompt,build_kill_prompt,build_save_prompt,build_investigate_prompt
+from prompt.prompt_builder import build_night_decision_prompt,build_kill_prompt,build_save_prompt,build_doctor_decision_prompt,build_investigate_prompt
 
 from game.game_engine import GameEngine
 from game.game_state import Role
@@ -120,7 +120,12 @@ async def run_doctor_action(channel, game_state, duration):
     await channel.send(f"🩺 **Doctor {doctor.name} is choosing who to save...**")
     
     # Build save prompt
-    prompt = build_save_prompt(doctor_agent, game_state)
+    # prompt = build_save_prompt(doctor_agent, game_state)
+    prompt = build_doctor_decision_prompt(
+        doctor_agent, 
+        game_state.last_discussion,  # Pass the discussion
+        game_state
+    ) 
     response = ask_ollama(prompt).strip()
     
     # More flexible parsing
