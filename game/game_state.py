@@ -107,6 +107,11 @@ class GameState:
             return "killer"
         return None
 
+    def reset_discussion_history(self):
+        """Clear discussion history for new game"""
+        self.last_discussion = []
+        self.last_killer_discussion = []
+
 # Global game state storage (in-memory, per channel/guild)
 active_games: Dict[int, GameState] = {}  # channel_id -> GameStatoe
 

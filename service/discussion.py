@@ -32,11 +32,12 @@ async def run_discussion_phase(bot, channel, game_state, duration, phase_type):
             if not agent:
                 continue
             
+            # In run_discussion_phase function
             prompt = build_discussion_prompt(
                 agent=agent,
                 role=player.role,
                 history=discussion_history,
-                phase_tone=tone,
+                phase_type=phase_type,  # ← Changed from phase_tone to phase_type
                 game_state=game_state
             )
             

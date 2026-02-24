@@ -1,3 +1,5 @@
+from game.game_state import Phase
+
 # prompt/prompt_builder.py
 def build_prompt(agent, history, phase=None):
     context = "\n".join(
@@ -191,52 +193,56 @@ Return ONLY the agent_id number of who you investigate.
 Do not explain. Just the number.
 """
 
-def build_discussion_prompt(agent, role, history, phase_tone, game_state):
-    """Prompt for discussion phases"""
+def build_discussion_prompt(agent, role, history, phase_type, game_state):
+    """Prompt with ULTRA-STRICT rules to prevent actions/descriptions"""
     
-    # Format recent conversation
-    recent = "\n".join([
-        f"{msg['speaker']}: {msg['message']}" 
-        for msg in history[-8:]
-    ]) if history else "The discussion is just starting."
+    identity = f"""YOU ARE: {agent['name']}
+YOUR ROLE: {role.value.upper()}
+YOUR PERSONALITY: {agent.get('personality', 'Normal')}"""
+
+    alive_players = [p.name for p in game_state.get_alive_players()]
+    dead_players = [p.name for p in game_state.players.values() if not p.is_alive]
     
-    # Get alive players list
-    alive_players = game_state.get_alive_players()
-    alive_list = "\n".join([f"  • {p.name}" for p in alive_players])
-    
-    # Add role-specific context
-    role_context = ""
-    if role.value == "killer":
-        role_context = "You are the KILLER. Blend in and avoid suspicion."
-    elif role.value == "detective":
-        role_context = "You are the DETECTIVE. Gather information subtly."
-    elif role.value == "doctor":
-        role_context = "You are the DOCTOR. Listen carefully to decide who to save."
+    reality = f"""CURRENT GAME REALITY:
+- Alive players: {', '.join(alive_players)}
+- Dead players: {', '.join(dead_players) if dead_players else 'No one has died yet'}
+- Today is Day {game_state.day_number}
+- You are in {phase_type.value.replace('_', ' ')} phase"""
+
+    if history:
+        conversation = "\n".join([
+            f"{msg['speaker']}: {msg['message']}" 
+            for msg in history[-5:]
+        ])
     else:
-        role_context = "You are a CITIZEN. Try to find the killer."
+        conversation = "No one has spoken yet in this game."
     
-    return f"""
-You are {agent['name']} in a Mafia game.
-{role_context}
+    # ULTRA-STRICT RULES
+    rules = """ABSOLUTE RULES - VIOLATION WILL BREAK THE GAME:
+1. OUTPUT ONLY THE WORDS YOU SPEAK - NOTHING ELSE
+2. NO asterisks, NO *actions*, NO descriptions
+3. NO "leans back", NO "voice low", NO "fingers steepled"
+4. NO environment descriptions - no "room is silent"
+5. NO tone indicators - not "measured" or "quiet"
+6. JUST THE DIALOGUE - exactly what comes out of your mouth
+7. Only reply in one two sentence not big paragraph.
+8. Mention the name of who you are talking to.
 
-STRICT RULES:
-- ONE SENTENCE ONLY
-- No asterisks or actions like *leans in*
-- No descriptions of movements or tone
-- No quotation marks around your speech
-- Just speak normally
+CORRECT example: "I think Viper is acting suspicious."
+INCORRECT example: *leans back* "I think Viper is acting suspicious."
 
-Alive players:
-{alive_list}
+Your response must contain ONLY your spoken words."""
 
-Current phase: {phase_tone}
+    return f"""{identity}
 
-Recent conversation:
-{recent}
+{reality}
 
-What do you say now? React to what others said or share your thoughts.
-Keep response to 1-2 sentences. Be natural and in-character.
-"""
+CONVERSATION SO FAR:
+{conversation}
+
+{rules}
+
+What do you say? (JUST the words, NO actions):"""
 
 def build_voting_prompt_with_context(agent, role, discussion_history, game_state):
     """Voting prompt that uses the discussion context"""

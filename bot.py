@@ -59,15 +59,10 @@ phase_task = None
 
 async def phase_loop(channel):
     phases = [
-        # DAY CYCLE
         Phase.MORNING_DISCUSSION,
         Phase.MORNING_VOTING,
-        
-        # EVENING CYCLE  
         Phase.EVENING_DISCUSSION,
-        Phase.EVENING_ACTION,
-        
-        # NIGHT CYCLE
+        Phase.EVENING_ACTION,        
         Phase.NIGHT_DISCUSSION,
         Phase.NIGHT_ACTION,
     ]
@@ -86,6 +81,16 @@ async def phase_loop(channel):
             
             # HANDLE EACH PHASE TYPE
             if current_phase.value.endswith("discussion"):
+                # In phase_loop, before discussion
+                if current_phase == Phase.MORNING_DISCUSSION:
+                    print("\n" + "="*60)
+                    print("GAME STATE CHECK:")
+                    print(f"Alive: {[p.name for p in game_state.get_alive_players()]}")
+                    print(f"Dead: {[p.name for p in game_state.players.values() if not p.is_alive]}")
+                    print(f"Day: {game_state.day_number}")
+                    print("="*60 + "\n")
+                    await channel.send(f"📊 **Game State - Alive: {', '.join([p.name for p in game_state.get_alive_players()])}**")
+                    
                 if current_phase == Phase.NIGHT_DISCUSSION:
                     # 🔪 KILLER-ONLY PRIVATE DISCUSSION
                     await run_killer_discussion(channel, game_state, duration)
@@ -112,7 +117,13 @@ async def phase_loop(channel):
                         await channel.send(f"🏆 **{winner.upper()} WIN!**")
                         del active_games[channel.id]
                         return
-
+            
+            # In phase_loop
+            elif current_phase == Phase.EVENING_DISCUSSION:
+                # ✅ YES - just a brief message
+                await channel.send("🩺 **The doctor contemplates in silence...**")
+                await asyncio.sleep(duration)  # Just wait
+            
             elif current_phase == Phase.EVENING_ACTION:
                 save_target = await run_doctor_action(channel, game_state, duration)
                 if save_target:
@@ -337,7 +348,7 @@ async def start_game(interaction: discord.Interaction):
         players=players,
         alive_agents=set(players.keys()),
     )
-
+    game_state.reset_discussion_history() 
     active_games[channel_id] = game_state
 
     await interaction.channel.send(
