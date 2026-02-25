@@ -14,3 +14,12 @@ __pycache__
 __init__.py
 mafia.db
 tts
+.venv/
+__pycache__/
+*.pyc
+mafia.db
+voice_samples/
+testing-voice/
+prompt_debug.log
+mafia.db
+tts.py

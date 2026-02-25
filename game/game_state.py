@@ -43,16 +43,23 @@ class GameState:
     game_id: int
     phase: Phase
     day_number: int = 1
-    players: Dict[int, Player] = field(default_factory=dict)  # agent_id -> Player
+    players: Dict[int, Player] = field(default_factory=dict)
     alive_agents: Set[int] = field(default_factory=set)
     dead_agents: Set[int] = field(default_factory=set)
     
     # Night resolution
     last_night_kill_attempt: Optional[int] = None
     last_night_saved: Optional[int] = None
-    last_night_investigation: Optional[tuple] = None  # (detective_id, target_id, is_killer)
+    last_night_investigation: Optional[tuple] = None
     last_discussion: List[Dict] = field(default_factory=list)   
-    last_killer_discussion: List[Dict] = field(default_factory=list)  # ← ADD THIS
+    last_killer_discussion: List[Dict] = field(default_factory=list)
+
+    # Vote tracking
+    current_votes: Dict[int, int] = field(default_factory=dict)
+    
+    # Game state - ADD THESE LINES
+    game_over: bool = False
+    winner: Optional[str] = None
 
     # Vote tracking
     current_votes: Dict[int, int] = field(default_factory=dict)  # voter_id -> target_id

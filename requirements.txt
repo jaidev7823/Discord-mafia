@@ -1,0 +1,20 @@
+# Core Frameworks
+discord.py==2.6.4
+SQLAlchemy==2.0.46
+python-dotenv==1.2.1
+
+# AI & LLM Communication
+requests==2.32.5
+httpx==0.28.1
+pydantic==2.12.5
+
+# TTS & Audio Stack
+chatterbox-tts
+piper-tts==1.4.1
+numpy<1.26.0
+soundfile==0.13.1
+
+# Database Drivers & Utilities
+greenlet==3.3.2
+tqdm==4.67.3
+sqlalchemy

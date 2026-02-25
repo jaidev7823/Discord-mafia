@@ -47,9 +47,9 @@ async def run_conversation(channel, agents, rounds=3):
 # -------------------- PHASE SYSTEM -----------------------
 # bot.py
 PHASE_DURATIONS = {
-    Phase.MORNING_DISCUSSION: 60,  # 1 min discussion
+    Phase.MORNING_DISCUSSION: 120,  # 1 min discussion
     Phase.MORNING_VOTING: 20,       # 20 sec voting
-    Phase.EVENING_DISCUSSION: 30,   # 30 sec discussion
+    Phase.EVENING_DISCUSSION: 120,   # 30 sec discussion
     Phase.EVENING_ACTION: 10,       # 10 sec doctor save
     Phase.NIGHT_DISCUSSION: 30,     # 30 sec discussion
     Phase.NIGHT_ACTION: 20,         # 20 sec killer + detective
@@ -283,28 +283,37 @@ async def stop_phases(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("No active phase loop.")
 
-
 @bot.tree.command(name="start-game")
 async def start_game(interaction: discord.Interaction):
-    await interaction.response.send_message(
-        "Starting game..."
-    )  # Add message content here
-
+    await interaction.response.defer()
+    
     channel_id = interaction.channel.id
 
     # Prevent duplicate game
     if channel_id in active_games:
-        await interaction.channel.send("Game already running in this channel.")
+        await interaction.followup.send("Game already running in this channel.")
         return
 
-    # Rest of your code remains the same...
     # Load agents from DB
     agents = get_agents(limit=10)
 
     if len(agents) < 3:
-        await interaction.channel.send("Need at least 3 agents.")
+        await interaction.followup.send("Need at least 3 agents.")
         return
 
+    # Initialize voices for these agents
+    await interaction.followup.send("🎙️ Initializing agent voices...")
+    from service.tts_service import initialize_agent_voice
+    
+    voice_count = 0
+    for agent in agents:
+        success = await initialize_agent_voice(agent['id'])
+        if success:
+            voice_count += 1
+    
+    await interaction.followup.send(f"✅ Initialized {voice_count} voices")
+
+    # Rest of your game creation code...
     engine = GameEngine()
     
     # 1️⃣ Create game row
@@ -335,26 +344,37 @@ async def start_game(interaction: discord.Interaction):
 
     # 5️⃣ Build in-memory players
     players = {}
-
     for agent_id, role_str, name in rows:
         players[agent_id] = Player(
-            agent_id=agent_id, name=name, role=Role(role_str), is_alive=True
+            agent_id=agent_id, 
+            name=name, 
+            role=Role(role_str), 
+            is_alive=True,
+            knows_role_of={}
         )
 
     # 6️⃣ Create GameState
     game_state = GameState(
         game_id=game_id,
-        phase=Phase.NIGHT_DISCUSSION,  # ← Changed from Phase.NIGHT
+        phase=Phase.MORNING_DISCUSSION,
         players=players,
         alive_agents=set(players.keys()),
+        dead_agents=set(),
+        day_number=1,
+        last_discussion=[],
+        last_killer_discussion=[],
+        last_night_kill_attempt=None,
+        last_night_saved=None,
+        current_votes={},
     )
     game_state.reset_discussion_history() 
     active_games[channel_id] = game_state
 
-    await interaction.channel.send(
-        f"Game started with {len(players)} players. Night begins."
+    await interaction.followup.send(
+        f"🎮 **Game started with {len(players)} players!**\n"
+        f"Roles assigned. Use `/start-phases` to begin the game cycle.\n"
+        f"First phase: **MORNING DISCUSSION**"
     )
-
 
 # =========================================================
 # ------------------------ MODAL --------------------------
