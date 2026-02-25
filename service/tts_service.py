@@ -8,6 +8,8 @@ from service.chatterbox_tts import ChatterboxTTS
 import gc
 import torch
 
+TTS_ENABLED = False 
+
 # Voice samples mapping - you can assign these manually or randomly
 VOICE_SAMPLES = {
     # You can assign specific agent IDs to specific voices
@@ -65,6 +67,10 @@ async def initialize_agent_voice(agent_id: int, voice_path: str = None):
 
 async def speak(bot, channel, agent, message, emotion=None):
     """Speak a message in voice channel"""
+    if not TTS_ENABLED:
+        print(f"[TTS DISABLED] {agent['name']}: {message[:50]}...")
+        return    """Speak a message in voice channel"""
+    
     voice_client = discord.utils.get(bot.voice_clients, guild=channel.guild)
     
     if not voice_client or not voice_client.is_connected():

@@ -283,6 +283,13 @@ async def stop_phases(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("No active phase loop.")
 
+@bot.tree.command(name="toggle-tts", description="Enable/disable TTS")
+async def toggle_tts(interaction: discord.Interaction):
+    from service.tts_service import TTS_ENABLED
+    TTS_ENABLED = not TTS_ENABLED
+    status = "enabled" if TTS_ENABLED else "disabled"
+    await interaction.response.send_message(f"TTS {status}")
+
 @bot.tree.command(name="start-game")
 async def start_game(interaction: discord.Interaction):
     await interaction.response.defer()

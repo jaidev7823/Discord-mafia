@@ -60,9 +60,6 @@ class GameState:
     # Game state - ADD THESE LINES
     game_over: bool = False
     winner: Optional[str] = None
-
-    # Vote tracking
-    current_votes: Dict[int, int] = field(default_factory=dict)  # voter_id -> target_id
     
     def get_alive_by_role(self, role: Role) -> List[Player]:
         """Get all alive players with specific role"""
