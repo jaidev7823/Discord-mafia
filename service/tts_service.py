@@ -8,7 +8,7 @@ from service.chatterbox_tts import ChatterboxTTS
 import gc
 import torch
 
-TTS_ENABLED = False 
+TTS_ENABLED = True 
 
 # Voice samples mapping - you can assign these manually or randomly
 VOICE_SAMPLES = {
