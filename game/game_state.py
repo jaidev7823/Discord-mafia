@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 from enum import Enum
+from .memory import PlayerMemory, GameEvent, EventType
 
 class Role(Enum):
     KILLER = "killer"
@@ -37,6 +38,45 @@ class Player:
     
     # Memory/context
     knows_role_of: Dict[int, Role] = field(default_factory=dict)  # Detective findings
+
+    memory: Optional[PlayerMemory] = None  # Add this
+    
+    def __post_init__(self):
+        if self.memory is None:
+            self.memory = PlayerMemory(
+                player_id=self.agent_id,
+                player_name=self.name,
+                role=self.role.value
+            )
+
+def record_event(self, event_type: EventType, actor: Optional[str] = None, 
+                 target: Optional[str] = None, message: Optional[str] = None):
+    """Record an event for all players to remember"""
+    event = GameEvent(
+        type=event_type,
+        day=self.day_number,
+        phase=self.phase.value,
+        actor=actor,
+        target=target,
+        message=message
+    )
+    
+    # All alive players witness public events
+    for player in self.get_alive_players():
+        player.memory.add_event(event)
+    
+    # Special handling for private events
+    if event_type == EventType.KILL and actor:
+        # Only killers know who killed
+        killer = self.players.get(actor)
+        if killer and killer.is_alive:
+            killer.memory.add_event(event)
+    
+    elif event_type == EventType.INVESTIGATE and actor:
+        # Only detective knows result
+        detective = self.players.get(actor)
+        if detective and detective.is_alive:
+            detective.memory.add_event(event)
 
 @dataclass
 class GameState:

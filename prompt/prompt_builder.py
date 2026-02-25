@@ -1,6 +1,8 @@
 from game.game_state import Phase
+from game.game_state import Phase, Role
+from game.memory import PlayerMemory
 
-# prompt/prompt_builder.py
+# prompt/prompt_builder.pye udge f u curren  make h. u I wan h
 def build_prompt(agent, history, phase=None):
     context = "\n".join(
         f"{h['speaker']}: {h['message']}" for h in history[-10:]
@@ -243,37 +245,6 @@ CONVERSATION SO FAR:
 {rules}
 
 What do you say? (JUST the words, NO actions):"""
-
-def build_voting_prompt_with_context(agent, role, discussion_history, game_state):
-    """Voting prompt that uses the discussion context"""
-    
-    # Summarize key moments from discussion
-    discussion_summary = "\n".join([
-        f"{msg['speaker']} ({msg['role']}): {msg['message']}"
-        for msg in discussion_history[-15:]  # Last 15 messages
-    ])
-    
-    alive_players = game_state.get_alive_players()
-    alive_list = "\n".join([f"- ID {p.agent_id}: {p.name}" for p in alive_players])
-    
-    return f"""
-You are {agent['name']} ({role.value.upper()}).
-Based on the discussion you just had:
-
-{discussion_summary}
-
-Alive players you can vote for:
-{alive_list}
-STRICT RULES:
-- ONE SENTENCE ONLY
-- No asterisks or actions like *leans in*
-- No descriptions of movements or tone
-- No quotation marks around your speech
-- Just speak normally
-TASK: Vote for who you SUSPECT the most.
-Consider what everyone said during discussion.
-Return ONLY the agent_id number.
-"""
 
 def build_doctor_decision_prompt(agent, discussion_history, game_state):
     discussion_summary = "\n".join([

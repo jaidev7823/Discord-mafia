@@ -7,9 +7,7 @@ class CreateAgentModal(discord.ui.Modal, title="Create AI Agent"):
     personality = discord.ui.TextInput(
         label="Personality", style=discord.TextStyle.paragraph
     )
-    backstory = discord.ui.TextInput(
-        label="Backstory", style=discord.TextStyle.paragraph
-    )
+
     system_prompt = discord.ui.TextInput(
         label="System Prompt", style=discord.TextStyle.paragraph
     )
@@ -23,7 +21,6 @@ class CreateAgentModal(discord.ui.Modal, title="Create AI Agent"):
                     "username": interaction.user.name,
                     "name": self.name.value,
                     "personality": self.personality.value,
-                    "backstory": self.backstory.value,
                     "system_prompt": self.system_prompt.value,
                     "pfp_url": None,
                 },
