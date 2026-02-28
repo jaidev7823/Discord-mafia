@@ -2,7 +2,7 @@
 
 import asyncio
 from service.agent_repository import get_agents
-from service.llm_service import ask_ollama
+from service.llm_service import ask_llm
 from service.tts_service import speak
 from game.game_state import Phase, Role
 from prompt.prompt_builder import build_discussion_prompt, build_killer_discussion_prompt
@@ -38,7 +38,7 @@ async def run_discussion_phase(bot, channel, game_state, duration, phase_type):
                 current_speaker_id=agent["id"]
             )
             
-            response = ask_ollama(prompt)
+            response = ask_llm(prompt, agent["name"])
             
             # After getting response from ask_ollama:
             if response and response.get("message") and len(response["message"].strip()) > 3:
@@ -60,7 +60,7 @@ async def run_discussion_phase(bot, channel, game_state, duration, phase_type):
                 print(f"[{agent['name']} THOUGHT]: {truncated_thought}")
 
                 # Optionally log full thought to file
-                with open("thoughts_debug.log", "a", encoding="utf-8") as f:
+                with open("tests/thoughts_debug.log", "a", encoding="utf-8") as f:
                     f.write(f"\n{'='*50}\n")
                     f.write(f"{agent['name']} - {phase_type.value}\n")
                     f.write(f"FULL THOUGHT:\n{response['thought']}\n")

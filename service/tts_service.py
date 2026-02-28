@@ -14,8 +14,6 @@ TTS_ENABLED = True
 VOICE_SAMPLES = {
     # You can assign specific agent IDs to specific voices
     # Format: agent_id: "path/to/voice.wav"
-    1: "voice_samples/aizen.wav",
-    2: "voice_samples/ayankoji.wav",
     3: "voice_samples/johanlibert.wav",
     4: "voice_samples/kira.wav",
     5: "voice_samples/L.wav",
@@ -23,8 +21,6 @@ VOICE_SAMPLES = {
 
 # Available voices for random assignment
 AVAILABLE_VOICES = [
-    "voice_samples/aizen.wav",
-    "voice_samples/ayankoji.wav", 
     "voice_samples/johanlibert.wav",
     "voice_samples/kira.wav",
     "voice_samples/L.wav"
