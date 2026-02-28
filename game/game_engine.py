@@ -14,7 +14,6 @@ from service.agent_repository import get_agents
 from service.llm_service import ask_ollama
 
 # Fix the circular import - remove this line
-# from game.game_engine import GameEngine  <- THIS CAUSES CIRCULAR IMPORT!
 
 def resolve_night_logic(game_state, killer_target, doctor_target):
     if killer_target is None:

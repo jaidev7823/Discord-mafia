@@ -1,3 +1,5 @@
+# game/discussion_phase.py - UPDATED to handle thought/message structure
+
 import asyncio
 from service.agent_repository import get_agents
 from service.llm_service import ask_ollama
@@ -6,20 +8,14 @@ from game.game_state import Phase, Role
 from prompt.prompt_builder import build_discussion_prompt, build_killer_discussion_prompt
 
 async def run_discussion_phase(bot, channel, game_state, duration, phase_type):
-    """All agents discuss freely"""
+    """All agents discuss freely with thought/message separation"""
     await channel.send(f"💬 **Discussion started...**")
     
     all_agents = get_agents(limit=20)
     agent_map = {a["id"]: a for a in all_agents}
     
-    discussion_history = []
+    discussion_history = []  # Now stores dicts with thought+message
     end_time = asyncio.get_event_loop().time() + duration
-    
-    tone = {
-        Phase.MORNING_DISCUSSION: "casual discussion about who seems suspicious",
-        Phase.EVENING_DISCUSSION: "quieter discussion, doctor is listening carefully",
-        Phase.NIGHT_DISCUSSION: "tense, people are cautious"
-    }.get(phase_type, "normal discussion")
     
     messages_sent = 0
     
@@ -32,32 +28,43 @@ async def run_discussion_phase(bot, channel, game_state, duration, phase_type):
             if not agent:
                 continue
             
-            # In run_discussion_phase function
+            # Build prompt with full history
             prompt = build_discussion_prompt(
                 agent=agent,
                 role=player.role,
                 history=discussion_history,
-                phase_type=phase_type,  # ← Changed from phase_tone to phase_type
-                game_state=game_state
+                phase_type=phase_type,
+                game_state=game_state,
+                current_speaker_id=agent["id"]
             )
             
-            message = ask_ollama(prompt)
+            response = ask_ollama(prompt)
             
-            if message and len(message.strip()) > 3:
+            # After getting response from ask_ollama:
+            if response and response.get("message") and len(response["message"].strip()) > 3:
+                # Store full thought+message in history
                 discussion_history.append({
                     "speaker": agent["name"],
+                    "speaker_id": agent["id"],
                     "role": player.role.value,
-                    "message": message
+                    "thought": response["thought"],  # Store full thought
+                    "message": response["message"]
                 })
-                
-                await channel.send(f"💬 **{agent['name']}**: {message}")
-                
-                try:
-                    await speak(bot, channel, agent, message)
-                except:
-                    pass
-                    
-                messages_sent += 1
+
+                # Show only the message publicly
+                await channel.send(f"💬 **{agent['name']}**: {response['message']}")
+
+                # Log truncated thought to console (for debugging)
+                from service.llm_service import truncate_thought
+                truncated_thought = truncate_thought(response["thought"], max_length=150)
+                print(f"[{agent['name']} THOUGHT]: {truncated_thought}")
+
+                # Optionally log full thought to file
+                with open("thoughts_debug.log", "a", encoding="utf-8") as f:
+                    f.write(f"\n{'='*50}\n")
+                    f.write(f"{agent['name']} - {phase_type.value}\n")
+                    f.write(f"FULL THOUGHT:\n{response['thought']}\n")
+                    f.write(f"SAID: {response['message']}\n")
             
             await asyncio.sleep(2)
     
@@ -68,8 +75,9 @@ async def run_discussion_phase(bot, channel, game_state, duration, phase_type):
     
     game_state.last_discussion = discussion_history
 
+
 async def run_killer_discussion(channel, game_state, duration):
-    """Private discussion among killers only"""
+    """Private discussion among killers with thought/message separation"""
     
     killers = game_state.get_alive_by_role(Role.KILLER)
     if not killers:
@@ -101,15 +109,18 @@ async def run_killer_discussion(channel, game_state, duration):
                 agent, other_killers, alive_targets, discussion_history
             )
             
-            message = ask_ollama(prompt)
+            response = ask_ollama(prompt)
             
-            if message and len(message.strip()) > 3:
+            if response and response.get("message") and len(response["message"].strip()) > 3:
                 discussion_history.append({
                     "speaker": agent["name"],
-                    "message": message
+                    "speaker_id": agent["id"],
+                    "thought": response["thought"],
+                    "message": response["message"]
                 })
                 
-                await channel.send(f"🔪 **{agent['name']}**: {message}")
+                await channel.send(f"🔪 **{agent['name']}**: {response['message']}")
+                print(f"[{agent['name']} KILLER THOUGHT]: {response['thought']}")
             
             await asyncio.sleep(2)
     

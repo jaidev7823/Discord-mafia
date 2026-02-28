@@ -63,7 +63,9 @@ def build_prompt(agent, history, phase=None):
         - No quotation marks around your speech
         - Speak conversationally, like a real player
         - Stay TRUE to your personality - would {agent['name']} really say this?
-        
+        - Do not talk about anything else then mafia game 
+        - If any agent started talking about anything else then finding other roles then put the topic back on killers
+
         PHASE-SPECIFIC STRATEGIES:
         
         DAY PHASE:
@@ -352,9 +354,10 @@ def build_investigate_prompt(agent, game_state, history=None):
         Return ONLY the agent_id number of who you investigate.
         Do not explain. Just the number.
         """
+# prompt/prompt_builder.py - UPDATED
 
-def build_discussion_prompt(agent, role, history, phase_type, game_state):
-    """Enhanced discussion prompt with ultra-strict rules and strategy"""
+def build_discussion_prompt(agent, role, history, phase_type, game_state, current_speaker_id=None):
+    """Enhanced discussion prompt with thought/message separation"""
     
     identity = f"""YOU ARE: {agent['name']} (ID: {agent['id']})
 YOUR ROLE: {role.value.upper()}
@@ -367,63 +370,138 @@ YOUR STRATEGY: {agent['system_prompt']}
     alive_players = [p.name for p in game_state.get_alive_players()]
     dead_players = [p.name for p in game_state.players.values() if not p.is_alive]
     
-    reality = f"""CURRENT GAME REALITY (YOUR ONLY KNOWLEDGE):
-- Alive players: {', '.join(alive_players)}
-- Dead players: {', '.join(dead_players) if dead_players else 'No one has died yet'}
-- Today is Day {game_state.day_number}
-- You are in {phase_type.value.replace('_', ' ')} phase
-- You have NO information beyond what's in the conversation below"""
+    reality = f"""
 
-    if history:
-        conversation = "\n".join([
-            f"{msg['speaker']}: {msg['message']}" 
-            for msg in history[-10:]  # More context for better pattern recognition
-        ])
-    else:
-        conversation = "No one has spoken yet in this game."
+    WHAT ARE YOU DOING HERE?
+
+    You are playing mafia game where your goal depends on your role...
+    (rest of your reality text remains the same)
+
+    CURRENT GAME REALITY (YOUR ONLY KNOWLEDGE):
+        - Alive players: {', '.join(alive_players)}
+        - Dead players: {', '.join(dead_players) if dead_players else 'No one has died yet'}
+        - Today is Day {game_state.day_number}
+        - You are in {phase_type.value.replace('_', ' ')} phase
+        - You have NO information beyond what's in the conversation below
+        """
+
+    # Build conversation history with proper filtering
+    conversation_lines = []
     
-    # ULTRA-STRICT RULES
-    rules = """ABSOLUTE RULES - VIOLATION WILL BREAK THE GAME:
-1. OUTPUT ONLY THE WORDS YOU SPEAK - NOTHING ELSE
-2. NO asterisks, NO *actions*, NO descriptions
-3. NO "leans back", NO "voice low", NO descriptions
-4. NO environment descriptions
-5. NO tone indicators
-6. JUST THE DIALOGUE - exactly what comes out of your mouth
-7. Only reply in 1-2 sentences, not a big paragraph
-8. Stay TRUE to your personality - would YOU say this?
-9. NEVER reveal your role unless your strategy demands it
-10. Base everything on patterns in the conversation above
-
-CORRECT example: "I think Viper is acting suspicious because they've been quiet all day."
-INCORRECT example: *leans back thoughtfully* "I think Viper is acting suspicious."
-
-Your response must contain ONLY your spoken words."""
-
+    for msg in history[-15:]:  # Slightly more context
+        if msg['speaker_id'] == agent['id']:
+            # Show your own past thoughts + messages (for consistency)
+            conversation_lines.append(f"{msg['speaker']} (YOU): [Thought: {msg['thought']}]")
+            conversation_lines.append(f"{msg['speaker']} (YOU): {msg['message']}")
+        else:
+            # Show only what others said, not their thoughts
+            conversation_lines.append(f"{msg['speaker']}: {msg['message']}")
+    
+    conversation = "\n".join(conversation_lines) if conversation_lines else "No one has spoken yet."
+    
+    # Updated thought prompt emphasizing internal reasoning
     thought_prompt = """
-BEFORE SPEAKING, CONSIDER:
-- What patterns do you notice in the conversation?
-- Who is acting consistently with their past statements?
-- Who is avoiding questions or changing stories?
-- What's your current strategy and does it need updating?
-- Is what you're about to say consistent with your personality?
-- Are you basing this on ACTUAL conversation evidence?
+BEFORE RESPONDING, YOU MUST THINK INTERNALLY:
+- What patterns do you notice in what people are saying?
+- Who is acting consistently/inconsistently?
+- What's your current strategy?
+- What information are you trying to gather?
+- What question or statement will best serve your goal?
 
-Then speak naturally, as if you were really in this game.
+Your internal thoughts will help you maintain consistency across turns.
+"""
+    
+    rules = """ABSOLUTE RULES:
+1. You MUST respond with VALID JSON only
+2. Your "thought" field contains your internal reasoning (never seen by others)
+3. Your "speak" field contains ONLY your spoken dialogue (what others hear)
+4. In speak: NO asterisks, NO actions, NO descriptions - just words
+5. Only reply with 1-2 sentences in your spoken message
+6. Stay TRUE to your personality
+7. NEVER reveal your role unless your strategy demands it
+8. Base everything on the conversation above
+9. Others cannot hear your thoughts - keep secrets in your thought field
+
+CORRECT example format:
+{
+    "thought": "Viper is contradicting themselves. If they're killer, they'd avoid attention. I'll ask directly.",
+    "speak": "Viper, why did you change your story about where you were last night?"
+}
 """
 
     return f"""{identity}
 
 {reality}
 
-CONVERSATION SO FAR (YOUR ONLY SOURCE OF TRUTH):
+CONVERSATION HISTORY (YOUR ONLY SOURCE OF TRUTH):
 {conversation}
 
 {thought_prompt}
 
 {rules}
 
-What do you say? (JUST the words, NO actions):"""
+Respond with JSON containing your thought and spoken message:"""
+
+
+def build_killer_discussion_prompt(agent, other_killers, alive_targets, history):
+    """Killer private chat with thought/message separation"""
+    
+    identity = f"""YOU ARE: {agent['name']} (ID: {agent['id']})
+YOUR ROLE: KILLER
+
+YOUR PERSONALITY: {agent['personality']}
+YOUR BACKSTORY: {agent['backstory']}
+YOUR STRATEGY: {agent['system_prompt']}
+"""
+
+    other_killer_names = [k.name for k in other_killers]
+    target_names = [p.name for p in alive_targets]
+    
+    # Build conversation history (killers can see each other's messages but not thoughts)
+    conversation_lines = []
+    for msg in history[-10:]:
+        if msg['speaker_id'] == agent['id']:
+            # Your own past thoughts + messages
+            conversation_lines.append(f"{msg['speaker']} (YOU): [Thought: {msg['thought']}]")
+            conversation_lines.append(f"{msg['speaker']} (YOU): {msg['message']}")
+        else:
+            # Others' messages only
+            conversation_lines.append(f"{msg['speaker']}: {msg['message']}")
+    
+    conversation = "\n".join(conversation_lines) if conversation_lines else "Discussion starting..."
+    
+    prompt = f"""{identity}
+
+PRIVATE KILLER CHAT - Only killers can hear this.
+
+Other killers alive: {', '.join(other_killer_names) if other_killer_names else 'You are alone'}
+Possible targets: {', '.join(target_names)}
+
+CONVERSATION SO FAR:
+{conversation}
+
+YOUR TASK: Discuss with other killers who to kill tonight.
+
+Think internally about:
+- Who would be the most strategic kill?
+- Are any other killers suspicious?
+- Can you trust your fellow killers?
+
+RULES:
+1. Respond in JSON format with "thought" and "speak"
+2. "thought" = your internal reasoning (only you see)
+3. "speak" = what you say to other killers
+4. Be strategic but stay in character
+
+Example:
+{{
+    "thought": "If we kill the detective first, they can't investigate us. But maybe frame someone else.",
+    "speak": "I think we should take out the detective tonight. Any objections?"
+}}
+
+Your response (JSON only):"""
+    
+    return prompt
 
 def build_voting_prompt_with_context(agent, role, discussion_history, game_state):
     """Enhanced voting prompt with full context and strategy"""
