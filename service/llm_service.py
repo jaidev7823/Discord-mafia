@@ -1,186 +1,158 @@
-# service/llm_service.py - UPDATED with fixed scoping and simpler JSON parsing
+# service/llm_service.py - SIMPLIFIED
 import requests
 import json
 import re
-from service.model_config import MODEL_NAME, OLLAMA_URL
+import os
+from service.model_config import MODEL_CONFIGS, DEFAULT_PROVIDER
 
-def ask_ollama(prompt: str, agent_name: str = None) -> dict:
-    """Send prompt to Ollama and parse JSON response with thought and message
+def ask_llm(prompt: str, agent_name: str = None, provider: str = None) -> dict:
+    """
+    Send prompt to LLM and return parsed response.
+    
+    Args:
+        prompt: The prompt to send
+        agent_name: For logging
+        provider: 'ollama', 'deepseek', 'openai', 'groq', 'anthropic'
     
     Returns:
-        dict: {
-            "thought": str,  # Internal reasoning (may contain newlines)
-            "message": str,  # Spoken dialogue  
-            "raw": str       # Full raw response for debugging
-        }
+        {"thought": str, "message": str, "raw": str}
     """
+    provider = provider or DEFAULT_PROVIDER
+    config = MODEL_CONFIGS.get(provider)
+    
+    if not config:
+        return {"thought": f"Unknown provider: {provider}", "message": "", "raw": ""}
+    
+    # Log the prompt
+    with open("prompt_debug.log", "a", encoding="utf-8") as f:
+        f.write(f"\n{'='*50}\nAGENT: {agent_name}\nPROVIDER: {provider}\nPROMPT:\n{prompt}\n")
+    
     try:
-        # Log the prompt being sent
-        with open("prompt_debug.log", "a", encoding="utf-8") as f:
-            f.write(f"\n{'='*50}\n")
-            f.write(f"AGENT: {agent_name}\n")
-            f.write(f"PROMPT SENT:\n{prompt}\n")
-            f.write(f"{'='*50}\n")
+        # Call the appropriate API based on type
+        if config["type"] == "ollama":
+            response_text = _call_ollama(prompt, config)
+        elif config["type"] == "openai_compatible":
+            response_text = _call_openai_compatible(prompt, config)
+        elif config["type"] == "anthropic":
+            response_text = _call_anthropic(prompt, config)
+        else:
+            response_text = ""
         
-        # Make request to Ollama
-        res = requests.post(
-            OLLAMA_URL,
-            json={
-                "model": MODEL_NAME,
-                "prompt": prompt,
-                "stream": False,
-                "options": {
-                    "temperature": 0.7,
-                    "num_predict": 2000,
-                }
-            },
-        )
-        
-        raw_text = res.text
-
-        # Log raw response
-        with open("prompt_debug.log", "a", encoding="utf-8") as f:
-            f.write(f"RAW RESPONSE:\n{raw_text}\n")
-        
-        # Parse the response
-        try:
-            data = res.json()
-            response_text = (
-                data.get("response")
-                or data.get("message", {}).get("content")
-                or data.get("thinking")
-                or ""
-            ).strip()
-            
-            # Log parsed response text
-            with open("prompt_debug.log", "a", encoding="utf-8") as f:
-                f.write(f"PARSED RESPONSE TEXT:\n{response_text}\n")
-            
-            # Try to extract JSON from the response
-            # First, remove markdown code block markers if present
-            cleaned_text = re.sub(r'^```json\s*', '', response_text, flags=re.MULTILINE)
-            cleaned_text = re.sub(r'\s*```$', '', cleaned_text, flags=re.MULTILINE)
-            
-            # Find JSON pattern (anything between { and }), allowing for multiline content
-            json_match = re.search(r'\{.*\}', cleaned_text, re.DOTALL)
-            if json_match:
-                json_str = json_match.group()
-                
-                # Try to parse the JSON
-                try:
-                    parsed = json.loads(json_str)
-                except json.JSONDecodeError:
-                    # If that fails, try to fix common issues
-                    # Replace unescaped newlines in string values
-                    def fix_json_newlines(match):
-                        # Get the string content without the quotes
-                        content = match.group(1)
-                        # Escape newlines and other control characters
-                        escaped = content.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
-                        return f'"{escaped}"'
-                    
-                    # Pattern to match string content (simplified but works for our case)
-                    fixed_json = re.sub(r'"((?:[^"\\]|\\.)*)"', fix_json_newlines, json_str, flags=re.DOTALL)
-                    
-                    try:
-                        parsed = json.loads(fixed_json)
-                    except json.JSONDecodeError as e2:
-                        with open("prompt_debug.log", "a", encoding="utf-8") as f:
-                            f.write(f"ERROR: Still failing after fixes: {e2}\n")
-                        
-                        # Manual extraction as last resort
-                        thought_match = re.search(r'"thought"\s*:\s*"([^"]+)"', json_str, re.DOTALL)
-                        speak_match = re.search(r'"speak"\s*:\s*"([^"]+)"', json_str, re.DOTALL)
-                        
-                        thought = thought_match.group(1).replace('\n', ' ').strip() if thought_match else "No thought extracted"
-                        speak = speak_match.group(1).replace('\n', ' ').strip() if speak_match else response_text[:200]
-                        
-                        return {
-                            "thought": thought,
-                            "message": speak,
-                            "raw": response_text
-                        }
-                
-                # Validate required fields
-                if "thought" in parsed and "speak" in parsed:
-                    result = {
-                        "thought": parsed["thought"].strip(),
-                        "message": parsed["speak"].strip(),
-                        "raw": response_text
-                    }
-                    
-                    # Log successful parse
-                    with open("prompt_debug.log", "a", encoding="utf-8") as f:
-                        thought_preview = result['thought'][:100].replace('\n', ' ') + "..." if len(result['thought']) > 100 else result['thought']
-                        f.write(f"PARSED JSON - Thought: {thought_preview}\n")
-                        f.write(f"PARSED JSON - Message: {result['message']}\n")
-                    
-                    return result
-                else:
-                    with open("prompt_debug.log", "a", encoding="utf-8") as f:
-                        f.write(f"ERROR: JSON missing required fields. Got: {list(parsed.keys())}\n")
-                    
-                    return {
-                        "thought": "No structured thought provided",
-                        "message": response_text[:200],
-                        "raw": response_text
-                    }
-            else:
-                # No JSON found
-                with open("prompt_debug.log", "a", encoding="utf-8") as f:
-                    f.write(f"WARNING: No JSON structure found in response\n")
-                
-                return {
-                    "thought": "No structured thought provided",
-                    "message": response_text[:200],
-                    "raw": response_text
-                }
-                
-        except Exception as e:
-            # Response parsing failed
-            with open("prompt_debug.log", "a", encoding="utf-8") as f:
-                f.write(f"ERROR: Failed to parse response: {e}\n")
-            
-            return {
-                "thought": "Error processing response",
-                "message": raw_text.strip()[:200],
-                "raw": raw_text
-            }
+        # Parse JSON response
+        return _parse_response(response_text)
         
     except Exception as e:
-        # Request failed
-        with open("prompt_debug.log", "a", encoding="utf-8") as f:
-            f.write(f"ERROR: Request failed: {e}\n")
-        
+        with open("prompt_debug.log", "a") as f:
+            f.write(f"ERROR: {e}\n")
+        return {"thought": f"Error: {str(e)}", "message": "", "raw": ""}
+
+def _call_ollama(prompt: str, config: dict) -> str:
+    """Call Ollama API"""
+    res = requests.post(config["url"], json={
+        "model": config["name"],
+        "prompt": prompt,
+        "stream": False,
+        "options": {"temperature": 0.7, "num_predict": 2000}
+    })
+    data = res.json()
+    return data.get("response", "")
+
+def _call_openai_compatible(prompt: str, config: dict) -> str:
+    """Call any OpenAI-compatible API (DeepSeek, OpenAI, Groq)"""
+    api_key = os.getenv(config["api_key_env"])
+    if not api_key:
+        raise ValueError(f"Missing {config['api_key_env']}")
+    
+    res = requests.post(
+        config["url"],
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        },
+        json={
+            "model": config["name"],
+            "messages": [
+                {"role": "system", "content": "Respond in JSON format with 'thought' and 'speak' fields."},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.7,
+            "max_tokens": 2000,
+            "response_format": {"type": "json_object"}
+        }
+    )
+    
+    data = res.json()
+    return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+def _call_anthropic(prompt: str, config: dict) -> str:
+    """Call Anthropic Claude API"""
+    api_key = os.getenv(config["api_key_env"])
+    if not api_key:
+        raise ValueError(f"Missing {config['api_key_env']}")
+    
+    res = requests.post(
+        config["url"],
+        headers={
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        },
+        json={
+            "model": config["name"],
+            "messages": [{"role": "user", "content": prompt}],
+            "system": "Respond in JSON format with 'thought' and 'speak' fields.",
+            "temperature": 0.7,
+            "max_tokens": 2000
+        }
+    )
+    
+    data = res.json()
+    return data.get("content", [{}])[0].get("text", "")
+
+def _parse_response(text: str) -> dict:
+    """Extract thought and speak from JSON response"""
+    if not text:
+        return {"thought": "No response", "message": "", "raw": ""}
+    
+    # Clean markdown code blocks
+    text = re.sub(r'^```json\s*|\s*```$', '', text, flags=re.MULTILINE)
+    
+    # Try to find JSON
+    json_match = re.search(r'\{.*\}', text, re.DOTALL)
+    if not json_match:
+        return {"thought": "No JSON found", "message": text[:200], "raw": text}
+    
+    # Try to parse JSON
+    try:
+        data = json.loads(json_match.group())
         return {
-            "thought": "Error in LLM request",
-            "message": "",
-            "raw": ""
+            "thought": data.get("thought", "").strip(),
+            "message": data.get("speak", "").strip(),
+            "raw": text
+        }
+    except:
+        # Fallback: try to extract fields with regex
+        thought = re.search(r'"thought"\s*:\s*"([^"]+)"', text)
+        speak = re.search(r'"speak"\s*:\s*"([^"]+)"', text)
+        return {
+            "thought": thought.group(1) if thought else "Parse error",
+            "message": speak.group(1) if speak else text[:200],
+            "raw": text
         }
 
+# Simple helper functions
+def ask_ollama(prompt: str, agent: str = None) -> dict:
+    return ask_llm(prompt, agent, "ollama")
 
-def ask_ollama_simple(prompt: str, agent_name: str = None) -> str:
-    """Legacy function that returns only the message text"""
-    result = ask_ollama(prompt, agent_name)
-    return result.get("message", "")
+def ask_deepseek(prompt: str, agent: str = None) -> dict:
+    return ask_llm(prompt, agent, "deepseek")
 
+def get_message(prompt: str, agent: str = None, provider: str = None) -> str:
+    """Quick helper to just get the message text"""
+    return ask_llm(prompt, agent, provider).get("message", "")
 
-def truncate_thought(thought: str, max_length: int = 150) -> str:
-    """Truncate thought for Discord display, keeping it readable"""
-    if not thought or len(thought) <= max_length:
-        return thought
-    
-    # Try to truncate at a sentence boundary
-    sentences = re.split(r'[.!?]', thought)
-    truncated = ""
-    for sentence in sentences:
-        if len(truncated) + len(sentence) + 3 <= max_length:
-            truncated += sentence + ". "
-        else:
-            break
-    
-    if truncated:
-        return truncated.strip() + "..."
-    else:
-        # If no complete sentence fits, just truncate
-        return thought[:max_length-3] + "..."
+def truncate(text: str, max_len: int = 150) -> str:
+    """Simple truncation"""
+    if not text or len(text) <= max_len:
+        return text
+    return text[:max_len-3] + "..."

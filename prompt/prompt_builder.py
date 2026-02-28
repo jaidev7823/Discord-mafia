@@ -1,15 +1,8 @@
-<<<<<<< HEAD
 from game.game_state import Phase
 from game.game_state import Phase, Role
 from game.memory import PlayerMemory
 
 # prompt/prompt_builder.pye udge f u curren  make h. u I wan h
-=======
-# prompt/prompt_builder.py
-from game.game_state import Phase
-import json
-
->>>>>>> dev
 def build_prompt(agent, history, phase=None):
     context = "\n".join(
         f"{h['speaker']}: {h['message']}" for h in history[-10:]
@@ -511,66 +504,6 @@ Your response (JSON only):"""
     
     return prompt
 
-<<<<<<< HEAD
-=======
-def build_voting_prompt_with_context(agent, role, discussion_history, game_state):
-    """Enhanced voting prompt with full context and strategy"""
-    
-    # Summarize key moments from discussion
-    discussion_summary = "\n".join([
-        f"{msg['speaker']}: {msg['message']}"
-        for msg in discussion_history[-15:]  # Last 15 messages for context
-    ])
-    
-    alive_players = game_state.get_alive_players()
-    # Filter out self from voting
-    votable_players = [p for p in alive_players if p.agent_id != agent['id']]
-    alive_list = "\n".join([f"- ID {p.agent_id}: {p.name}" for p in votable_players])
-    
-    return f"""
-You are {agent['name']} (ID: {agent['id']}) with role {role.value.upper()}.
-
-YOUR PERSONALITY: {agent['personality']}
-YOUR BACKSTORY: {agent['backstory']}
-YOUR STRATEGY: {agent['system_prompt']}
-
-Based on the discussion you just had:
-
-{discussion_summary}
-
-Alive players you can vote for (YOU CANNOT VOTE FOR YOURSELF):
-{alive_list}
-
-CRITICAL VOTING RULES:
-- You MUST vote for someone - never skip
-- You CANNOT vote for yourself (ID: {agent['id']})
-- Base your vote on PATTERNS in the discussion above
-- Consider:
-  * Who contradicted themselves?
-  * Who avoided answering questions?
-  * Who defended suspicious players?
-  * Who has been unusually quiet?
-  * What are the voting patterns?
-- Remember your real goal based on your role
-- Stay true to your personality
-- Update your strategy if needed based on new information
-
-Return a JSON object with:
-{{
-    "vote": <agent_id>,
-    "thought": "your detailed reasoning showing the patterns you observed"
-}}
-
-Example:
-{{
-    "vote": 7,
-    "thought": "Player 7 changed their story twice and avoided direct questions about their vote"
-}}
-
-Return ONLY the JSON, no other text.
-"""
-
->>>>>>> dev
 def build_doctor_decision_prompt(agent, discussion_history, game_state):
     """Enhanced doctor decision with pattern recognition"""
     discussion_summary = "\n".join([
