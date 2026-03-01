@@ -1,6 +1,6 @@
 # bot/voice.py
 import discord
-from service.tts_service import TTS_ENABLED, agent_voices
+from service import tts_service
 
 def setup_voice_commands(bot):
     """Setup voice-related commands"""
@@ -23,21 +23,20 @@ def setup_voice_commands(bot):
 
     @bot.tree.command(name="toggle-tts", description="Enable/disable TTS")
     async def toggle_tts(interaction: discord.Interaction):
-        global TTS_ENABLED
-        TTS_ENABLED = not TTS_ENABLED
-        status = "enabled" if TTS_ENABLED else "disabled"
+        tts_service.TTS_ENABLED = not tts_service.TTS_ENABLED
+        status = "enabled" if tts_service.TTS_ENABLED else "disabled"
         await interaction.response.send_message(f"🔊 TTS {status}")
 
     @bot.tree.command(name="voice-status", description="Check voice initialization status")
     async def voice_status(interaction: discord.Interaction):
         await interaction.response.defer()
         
-        msg = f"**TTS Enabled:** {TTS_ENABLED}\n"
-        msg += f"**Initialized Voices:** {len(agent_voices)}\n"
+        msg = f"**TTS Enabled:** {tts_service.TTS_ENABLED}\n"
+        msg += f"**Initialized Voices:** {len(tts_service.agent_voices)}\n"
         
-        if agent_voices:
+        if tts_service.agent_voices:
             msg += "\n**Agents with voices:**\n"
-            for agent_id in list(agent_voices.keys())[:10]:  # Show first 10
+            for agent_id in list(tts_service.agent_voices.keys())[:10]:  # Show first 10
                 msg += f"  • Agent {agent_id}\n"
         
         await interaction.followup.send(msg)

@@ -45,7 +45,7 @@ def setup_commands(bot):
         await interaction.followup.send("🎙️ Initializing agent voices...")
         voice_count = 0
         for agent in agents:
-            success = await initialize_agent_voice(agent['id'])
+            success = await initialize_agent_voice(agent["id"], agent.get("voice_path"))
             if success:
                 voice_count += 1
         

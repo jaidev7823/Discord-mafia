@@ -3,58 +3,35 @@ import os
 import asyncio
 import discord
 import tempfile
-import random
 from service.chatterbox_tts import ChatterboxTTS
 import gc
 import torch
 
 TTS_ENABLED = True 
 
-# Voice samples mapping - you can assign these manually or randomly
-VOICE_SAMPLES = {
-    # You can assign specific agent IDs to specific voices
-    # Format: agent_id: "path/to/voice.wav"
-    3: "voice_samples/johanlibert.wav",
-    4: "voice_samples/kira.wav",
-    5: "voice_samples/L.wav",
-}
-
-# Available voices for random assignment
-AVAILABLE_VOICES = [
-    "voice_samples/johanlibert.wav",
-    "voice_samples/kira.wav",
-    "voice_samples/L.wav"
-]
+# Deprecated: hardcoded/random voice pools are intentionally disabled.
+# VOICE_SAMPLES = {...}
+# AVAILABLE_VOICES = [...]
 
 # Global TTS instances per agent
 agent_voices = {}  # agent_id -> ChatterboxTTS instance
 
 async def initialize_agent_voice(agent_id: int, voice_path: str = None):
-    """Initialize voice for an agent"""
+    """Initialize voice for an agent using DB voice_path only."""
     try:
-        # If specific voice path provided, use it
-        if voice_path and os.path.exists(voice_path):
+        if not voice_path:
+            print(f"⚠ No voice_path in DB for agent {agent_id}")
+            agent_voices[agent_id] = None
+            return False
+
+        if os.path.exists(voice_path):
             agent_voices[agent_id] = ChatterboxTTS(voice_path)
             print(f"✅ Voice initialized for agent {agent_id} using {os.path.basename(voice_path)}")
             return True
-        
-        # If agent has a predefined voice in mapping, use it
-        if agent_id in VOICE_SAMPLES and os.path.exists(VOICE_SAMPLES[agent_id]):
-            agent_voices[agent_id] = ChatterboxTTS(VOICE_SAMPLES[agent_id])
-            print(f"✅ Voice initialized for agent {agent_id} using {os.path.basename(VOICE_SAMPLES[agent_id])}")
-            return True
-        
-        # Otherwise, pick a random voice from available ones
-        if AVAILABLE_VOICES:
-            # Simple round-robin or random assignment
-            random_voice = random.choice(AVAILABLE_VOICES)
-            agent_voices[agent_id] = ChatterboxTTS(random_voice)
-            print(f"✅ Voice initialized for agent {agent_id} using random voice: {os.path.basename(random_voice)}")
-            return True
-        else:
-            print(f"⚠ No voice samples available for agent {agent_id}")
-            agent_voices[agent_id] = None
-            return False
+
+        print(f"⚠ Voice file not found for agent {agent_id}: {voice_path}")
+        agent_voices[agent_id] = None
+        return False
             
     except Exception as e:
         print(f"❌ Voice init error for agent {agent_id}: {e}")
@@ -65,7 +42,7 @@ async def speak(bot, channel, agent, message, emotion=None):
     """Speak a message in voice channel"""
     if not TTS_ENABLED:
         print(f"[TTS DISABLED] {agent['name']}: {message[:50]}...")
-        return    """Speak a message in voice channel"""
+        return
     
     voice_client = discord.utils.get(bot.voice_clients, guild=channel.guild)
     
@@ -83,7 +60,7 @@ async def speak(bot, channel, agent, message, emotion=None):
     
     try:
         print(f"🎙 {agent['name']} speaking: {message[:50]}...")
-                # Clear cache before generation
+        # Clear cache before generation
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             gc.collect()

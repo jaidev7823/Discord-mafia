@@ -7,7 +7,7 @@ def get_agents(limit=5):
     try:
         rows = db.execute(
             text("""
-                SELECT id, name, personality, backstory, system_prompt
+                SELECT id, name, personality, backstory, system_prompt, voice_path
                 FROM agents
                 LIMIT :limit
             """),
@@ -21,6 +21,7 @@ def get_agents(limit=5):
                 "personality": r[2],
                 "backstory": r[3],
                 "system_prompt": r[4],
+                "voice_path": r[5],
             }
             for r in rows
         ]

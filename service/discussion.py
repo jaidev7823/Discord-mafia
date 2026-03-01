@@ -53,6 +53,8 @@ async def run_discussion_phase(bot, channel, game_state, duration, phase_type):
 
                 # Show only the message publicly
                 await channel.send(f"💬 **{agent['name']}**: {response['message']}")
+                await speak(bot, channel, agent, response["message"])
+                messages_sent += 1
 
                 # Log truncated thought to console (for debugging)
                 from service.llm_service import truncate_thought

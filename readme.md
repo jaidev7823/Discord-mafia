@@ -1,5 +1,21 @@
 Making ai mafia game in discord
 
+## TTS model preload (important for production)
+
+Chatterbox downloads model weights on first load. If this happens while the bot is running in voice, Discord heartbeat can be blocked.
+
+Warm the model cache before starting the bot:
+
+```bash
+python scripts/preload_tts_model.py
+```
+
+By default, the bot now preloads TTS before connecting to Discord. To disable that behavior:
+
+```bash
+PRELOAD_TTS_MODEL=0 python bot.py
+```
+
 One Game Server
   controlling
 Ten LLM-driven agents
