@@ -147,7 +147,9 @@ class GameState:
         
         if alive_killers == 0:
             return "citizens"
-        if alive_killers >= alive_citizens:
+        # Killer side wins only when no non-killers are alive.
+        # This keeps the game running even if killers outnumber others.
+        if alive_killers > 0 and alive_citizens == 0:
             return "killer"
         return None
 
@@ -158,4 +160,3 @@ class GameState:
 
 # Global game state storage (in-memory, per channel/guild)
 active_games: Dict[int, GameState] = {}  # channel_id -> GameStatoe
-

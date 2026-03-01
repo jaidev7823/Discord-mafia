@@ -1,5 +1,6 @@
 # game/game_engine.py
 import random
+import re
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from db.database import SessionLocal
@@ -364,13 +365,22 @@ async def run_day_voting(channel, game_state, duration):
         agent_with_role = agent.copy()
         agent_with_role["role"] = player.role.value
         
-        # Build voting prompt
-        prompt = build_vote_prompt(agent_with_role, game_state)
-        response = ask_ollama(prompt).strip()
+        # Build voting prompt with recent discussion context
+        discussion_history = getattr(game_state, "last_discussion", [])
+        prompt = build_vote_prompt(agent_with_role, discussion_history, game_state)
+        raw_response = ask_ollama(prompt)
+        if isinstance(raw_response, dict):
+            response = (raw_response.get("message") or raw_response.get("raw") or "").strip()
+        else:
+            response = str(raw_response).strip()
         
         try:
-            # Parse response: "VOTE: 5" or just the number
-            if ":" in response:
+            # Parse response in either JSON or plain text:
+            # {"vote": 5} OR "VOTE: 5" OR "5"
+            vote_match = re.search(r'"vote"\s*:\s*(\d+)', response)
+            if vote_match:
+                target_id = int(vote_match.group(1))
+            elif ":" in response:
                 target_id = int(response.split(":")[1].strip())
             else:
                 target_id = int(response)

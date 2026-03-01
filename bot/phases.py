@@ -15,7 +15,11 @@ async def run_conversation(bot, channel, agents, rounds=3):
     for _ in range(rounds):
         for agent in agents:
             prompt = build_prompt(agent, history)
-            message = ask_ollama(prompt)
+            raw_response = ask_ollama(prompt)
+            if isinstance(raw_response, dict):
+                message = (raw_response.get("message") or raw_response.get("raw") or "").strip()
+            else:
+                message = str(raw_response).strip()
             history.append({"speaker": agent["name"], "message": message})
             await channel.send(f"**{agent['name']}**: {message}")
             await speak(bot, channel, agent, message)

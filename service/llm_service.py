@@ -1,9 +1,11 @@
-# service/llm_service.py - GROQ VERSION
+# service/llm_service.py
 import requests
 import json
 import re
 import os
 from service.model_config import MODEL_CONFIGS
+
+PROVIDER_PRIORITY = ("gemini", "groq", "ollama")
 
 def _is_valid_api_key(api_key_env: str) -> bool:
     """Check if API key exists and looks valid (not a placeholder)"""
@@ -14,7 +16,7 @@ def _is_valid_api_key(api_key_env: str) -> bool:
     if not key:
         return False
     
-    placeholders = ["your_", "sk-xxx", "demo", "placeholder", "xxxx", "gsk_xxx"]
+    placeholders = ["your_", "sk-xxx", "demo", "placeholder", "xxxx", "gsk_xxx", "AIzaSyXXX"]
     key_lower = key.lower()
     if any(p in key_lower for p in placeholders):
         return False
@@ -32,33 +34,52 @@ def _is_valid_api_key(api_key_env: str) -> bool:
 def get_best_available_provider() -> str:
     """
     Returns the best available provider:
-    - Groq if valid API key exists (free tier available)
-    - DeepSeek if valid API key exists
+    - Gemini first
+    - Groq second
     - Ollama as fallback
     """
-    # Check for Groq first (free tier)
-    if _is_valid_api_key("GROQ_API_KEY"):
-        print("✅ Using Groq (free tier)")
-        return "groq"
-    
-    # Check for DeepSeek second
-    if _is_valid_api_key("DEEPSEEK_API_KEY"):
-        print("✅ Using DeepSeek")
-        return "deepseek"
-    
-    # Check for OpenAI third
-    if _is_valid_api_key("OPENAI_API_KEY"):
-        print("✅ Using OpenAI")
-        return "openai"
-    
-    # Check if Ollama is running
-    try:
-        requests.get("http://localhost:11434/api/tags", timeout=2)
-        print("⚠️ Using Ollama (local)")
-        return "ollama"
-    except:
-        print("❌ No working LLM provider found!")
-        return None
+    for provider in PROVIDER_PRIORITY:
+        if _provider_is_available(provider):
+            return provider
+    return None
+
+def _provider_is_available(provider: str) -> bool:
+    """Check whether provider can be used right now."""
+    config = MODEL_CONFIGS.get(provider)
+    if not config:
+        return False
+
+    if config["type"] == "ollama":
+        try:
+            requests.get("http://localhost:11434/api/tags", timeout=2)
+            return True
+        except Exception:
+            return False
+
+    api_key_env = config.get("api_key_env")
+    return _is_valid_api_key(api_key_env)
+
+def _provider_chain(start_provider: str = None) -> list:
+    """
+    Build ordered fallback chain:
+    gemini -> groq -> ollama
+    """
+    if start_provider:
+        if start_provider in PROVIDER_PRIORITY:
+            idx = PROVIDER_PRIORITY.index(start_provider)
+            return list(PROVIDER_PRIORITY[idx:])
+        return [start_provider]
+    return list(PROVIDER_PRIORITY)
+
+def _critical_llm_error(prompt: str, agent_name: str = None, details: str = ""):
+    message = (
+        "CRITICAL: All LLM providers failed in order "
+        "(gemini -> groq -> ollama)."
+    )
+    if details:
+        message = f"{message} {details}"
+    _log_message(agent_name, "fallback_chain", prompt, error=message)
+    raise RuntimeError(message)
 
 def _log_message(agent_name: str, provider: str, prompt: str, response_text: str = None, error: str = None):
     """Helper function to log messages"""
@@ -76,55 +97,43 @@ def _log_message(agent_name: str, provider: str, prompt: str, response_text: str
 
 def ask_llm(prompt: str, agent_name: str = None, provider: str = None) -> dict:
     """
-    Send prompt to LLM. Auto-selects best available provider.
+    Send prompt to LLM with strict fallback:
+    gemini -> groq -> ollama.
     """
-    # Auto-select provider if none specified
-    if provider is None:
-        provider = get_best_available_provider()
-        if provider is None:
-            return {"thought": "No working LLM provider found", "message": "", "raw": ""}
-    
-    print(f"[Using provider: {provider}]")
-    
-    config = MODEL_CONFIGS.get(provider)
-    if not config:
-        error_msg = f"Configuration not found for {provider}"
-        _log_message(agent_name, provider, prompt, error=error_msg)
-        return {"thought": error_msg, "message": "", "raw": ""}
-    
-    # Check if API key is valid for cloud providers
-    if provider in ["groq", "deepseek", "openai"]:
-        if not _is_valid_api_key(config.get("api_key_env")):
-            error_msg = f"{provider} API key is invalid or missing"
+    fallback_chain = _provider_chain(provider)
+    attempted = []
+
+    for candidate in fallback_chain:
+        config = MODEL_CONFIGS.get(candidate)
+        if not config:
+            attempted.append(f"{candidate}:missing_config")
+            continue
+
+        if not _provider_is_available(candidate):
+            attempted.append(f"{candidate}:not_available")
+            continue
+
+        print(f"[Using provider: {candidate}]")
+
+        try:
+            if config["type"] == "ollama":
+                response_text = _call_ollama(prompt, config)
+            elif config["type"] == "openai_compatible":
+                response_text = _call_openai_compatible(prompt, config)
+            else:
+                attempted.append(f"{candidate}:unsupported_type")
+                continue
+
+            _log_message(agent_name, candidate, prompt, response_text)
+            return _parse_response(response_text)
+
+        except Exception as e:
+            error_msg = f"{candidate} API error: {str(e)}"
             print(f"❌ {error_msg}")
-            _log_message(agent_name, provider, prompt, error=error_msg)
-            return {"thought": error_msg, "message": "", "raw": ""}
-    
-    try:
-        # Call appropriate API
-        if config["type"] == "ollama":
-            response_text = _call_ollama(prompt, config)
-        elif config["type"] == "openai_compatible":
-            response_text = _call_openai_compatible(prompt, config)
-        else:
-            response_text = ""
-        
-        # Log the response
-        _log_message(agent_name, provider, prompt, response_text)
-        
-        return _parse_response(response_text)
-        
-    except Exception as e:
-        error_msg = f"{provider} API error: {str(e)}"
-        print(f"❌ {error_msg}")
-        _log_message(agent_name, provider, prompt, error=error_msg)
-        
-        # Try fallback to next available provider
-        if provider != "ollama":
-            print(f"⚠️ Falling back to next available provider...")
-            return ask_llm(prompt, agent_name, None)  # This will auto-select again
-        
-        return {"thought": error_msg, "message": "", "raw": ""}
+            _log_message(agent_name, candidate, prompt, error=error_msg)
+            attempted.append(f"{candidate}:error")
+
+    _critical_llm_error(prompt, agent_name, details=f"Attempts={','.join(attempted)}")
 
 def _call_ollama(prompt: str, config: dict) -> str:
     """Call Ollama API"""
@@ -212,6 +221,10 @@ def truncate_thought(thought: str, max_length: int = 150) -> str:
 def ask_groq(prompt: str, agent: str = None) -> dict:
     """Use Groq API"""
     return ask_llm(prompt, agent, "groq")
+
+def ask_gemini(prompt: str, agent: str = None) -> dict:
+    """Use Gemini API"""
+    return ask_llm(prompt, agent, "gemini")
 
 def ask_deepseek(prompt: str, agent: str = None) -> dict:
     """Use DeepSeek API"""

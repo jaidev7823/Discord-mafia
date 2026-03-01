@@ -369,6 +369,12 @@ YOUR STRATEGY: {agent['system_prompt']}
 
     alive_players = [p.name for p in game_state.get_alive_players()]
     dead_players = [p.name for p in game_state.players.values() if not p.is_alive]
+
+    latest_night_event = "No confirmed night death."
+    if game_state.last_night_kill_attempt:
+        killed = game_state.players.get(game_state.last_night_kill_attempt)
+        if killed and not killed.is_alive:
+            latest_night_event = f"{killed.name} was killed last night."
     
     reality = f"""
 
@@ -380,6 +386,7 @@ YOUR STRATEGY: {agent['system_prompt']}
     CURRENT GAME REALITY (YOUR ONLY KNOWLEDGE):
         - Alive players: {', '.join(alive_players)}
         - Dead players: {', '.join(dead_players) if dead_players else 'No one has died yet'}
+        - Latest night result: {latest_night_event}
         - Today is Day {game_state.day_number}
         - You are in {phase_type.value.replace('_', ' ')} phase
         - You have NO information beyond what's in the conversation below
@@ -407,6 +414,7 @@ BEFORE RESPONDING, YOU MUST THINK INTERNALLY:
 - What's your current strategy?
 - What information are you trying to gather?
 - What question or statement will best serve your goal?
+- If someone died last night, who benefits most from that death and why?
 
 Your internal thoughts will help you maintain consistency across turns.
 """

@@ -14,7 +14,8 @@ async def run_discussion_phase(bot, channel, game_state, duration, phase_type):
     all_agents = get_agents(limit=20)
     agent_map = {a["id"]: a for a in all_agents}
     
-    discussion_history = []  # Now stores dicts with thought+message
+    # Keep some prior context so agents can reason across phases.
+    discussion_history = list(getattr(game_state, "last_discussion", [])[-20:])
     end_time = asyncio.get_event_loop().time() + duration
     
     messages_sent = 0
@@ -111,7 +112,7 @@ async def run_killer_discussion(channel, game_state, duration):
                 agent, other_killers, alive_targets, discussion_history
             )
             
-            response = ask_ollama(prompt)
+            response = ask_llm(prompt, agent["name"])
             
             if response and response.get("message") and len(response["message"].strip()) > 3:
                 discussion_history.append({

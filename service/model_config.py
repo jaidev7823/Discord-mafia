@@ -3,6 +3,15 @@ import os
 
 # Simple dictionary of model configurations
 MODEL_CONFIGS = {
+    "gemini": {
+        "name": os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
+        "url": os.getenv(
+            "GEMINI_URL",
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        ),
+        "api_key_env": "GEMINI_API_KEY",
+        "type": "openai_compatible",
+    },
     "ollama": {
         "name": os.getenv("OLLAMA_MODEL", "ministral-3:latest"),
         "url": os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate"),

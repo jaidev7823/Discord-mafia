@@ -6,6 +6,11 @@ from prompt.prompt_builder import build_night_decision_prompt,build_kill_prompt,
 from game.game_engine import GameEngine
 from game.game_state import Role
 
+def _llm_response_text(raw_response) -> str:
+    if isinstance(raw_response, dict):
+        return (raw_response.get("message") or raw_response.get("raw") or "").strip()
+    return str(raw_response).strip()
+
 async def run_killer_action(channel, game_state, duration):
     """Only the killer chooses who to kill"""
     # Find the killer
@@ -28,7 +33,7 @@ async def run_killer_action(channel, game_state, duration):
     discussion_text = "\n".join([f"{msg['speaker']}: {msg['message']}" for msg in discussion[-5:]])
     # Build kill prompt
     prompt = build_kill_prompt(killer_agent, game_state, discussion_text)
-    response = ask_ollama(prompt).strip()
+    response = _llm_response_text(ask_ollama(prompt))
     
     try:
         # Parse response: "KILL: 5" or just the number
@@ -74,7 +79,7 @@ async def run_detective_action(channel, game_state, duration):
     
     # Build investigate prompt
     prompt = build_investigate_prompt(detective_agent, game_state)
-    response = ask_ollama(prompt).strip()
+    response = _llm_response_text(ask_ollama(prompt))
     
     try:
         # Parse response: "INVESTIGATE: 5" or just the number
@@ -127,7 +132,7 @@ async def run_doctor_action(channel, game_state, duration):
         game_state.last_discussion,  # Pass the discussion
         game_state
     ) 
-    response = ask_ollama(prompt).strip()
+    response = _llm_response_text(ask_ollama(prompt))
     
     print(f"DEBUG - Doctor response: '{response}'")  # Add this to see responses
     
@@ -197,7 +202,7 @@ async def collect_night_actions(channel, game_state):
         agent["role"] = player.role.value
 
         prompt = build_night_decision_prompt(agent, game_state)
-        response = ask_ollama(prompt).strip()
+        response = _llm_response_text(ask_ollama(prompt))
 
         try:
             action, target = response.split(":")
